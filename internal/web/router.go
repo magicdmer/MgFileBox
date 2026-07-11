@@ -167,6 +167,7 @@ func (s *Server) registerRoutes() {
 	s.engine.POST("/api/auth/login", s.handleLogin)
 	s.engine.GET("/s/:id", s.handleSharePage)
 	s.engine.POST("/s/:id/unlock", s.handleUnlockShare)
+	s.engine.POST("/s/:id/download-click", s.handleDownloadClick)
 	s.engine.GET("/s/:id/download", s.handleDownload)
 
 	admin := s.engine.Group("/")
@@ -338,8 +339,35 @@ func (s *Server) handleDownload(c *gin.Context) {
 		return
 	}
 
-	s.svc.RecordAccess(c.Request.Context(), share.ID, "download", clientIP(c), c.Request.UserAgent(), http.StatusOK)
 	c.FileAttachment(target.StoragePath, target.FileName)
+}
+
+func (s *Server) handleDownloadClick(c *gin.Context) {
+	share, err := s.svc.GetShare(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	if share.IsDeleted() || share.IsExpired(time.Now()) {
+		c.Status(http.StatusGone)
+		return
+	}
+
+	unlockCookie, _ := c.Cookie(unlockCookieName(share.ID))
+	if !s.svc.CanAccessShare(share, unlockCookie) {
+		c.Status(http.StatusForbidden)
+		return
+	}
+
+	if fileID := c.Query("file"); fileID != "" {
+		if _, err = s.svc.GetShareFile(c.Request.Context(), share.ID, fileID); err != nil {
+			c.Status(http.StatusNotFound)
+			return
+		}
+	}
+
+	s.svc.RecordAccess(c.Request.Context(), share.ID, "download", clientIP(c), c.Request.UserAgent(), http.StatusOK)
+	c.Status(http.StatusNoContent)
 }
 
 func (s *Server) handleLogin(c *gin.Context) {

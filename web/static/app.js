@@ -603,6 +603,22 @@
     });
   }
 
+  function bindDownloadCounters() {
+    $$('[data-download-count]').forEach((link) => {
+      link.addEventListener("click", () => {
+        const countURL = link.dataset.downloadCount;
+        if (!countURL) return;
+
+        if (navigator.sendBeacon) {
+          navigator.sendBeacon(countURL, new Blob([], { type: "application/octet-stream" }));
+          return;
+        }
+
+        fetch(countURL, { method: "POST", keepalive: true }).catch(() => {});
+      });
+    });
+  }
+
   function toggleFileDisclosure(button) {
     const targetID = button.getAttribute("aria-controls") || `files-${button.dataset.toggleFiles}`;
     const target = document.getElementById(targetID);
@@ -620,6 +636,7 @@
   bindUploadForm();
   bindCopyButtons();
   bindDeleteButtons();
+  bindDownloadCounters();
   bindFileDisclosures();
   bindManagementTabs();
 })();

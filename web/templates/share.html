@@ -76,7 +76,7 @@
                 <strong class="mono truncate">{{ .FileName }}</strong>
                 <span>{{ formatSize .Size }}</span>
               </div>
-              <a href="/s/{{ $.Share.ID }}/download?file={{ .ID }}" class="button button-primary button-compact">下载</a>
+              <a href="/s/{{ $.Share.ID }}/download?file={{ .ID }}" data-download-count="/s/{{ $.Share.ID }}/download-click?file={{ .ID }}" class="button button-primary button-compact">下载</a>
             </div>
             {{ end }}
           </div>
@@ -92,6 +92,6 @@
   </main>
   {{ end }}
 
-  <script src="/static/app.js?v=20260711-21"></script>
+  <script src="/static/app.js?v=20260712-01"></script>
 </body>
 </html>
