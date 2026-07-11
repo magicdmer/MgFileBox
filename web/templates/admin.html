@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ .Title }} - MgFileBox</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/app.css?v=20260711-21">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <a href="/upload" class="brand-mark">
+        <svg class="brand-mark__cube" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+          <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+          <line x1="12" y1="22.08" x2="12" y2="12"></line>
+        </svg>
+        <span class="brand-mark__name">MgFileBox</span>
+      </a>
+      <nav class="nav-pills">
+        <a href="/upload" class="nav-pill">上传</a>
+        <a href="/admin/shares" class="nav-pill {{ if eq .ActiveNav "admin" }}is-active{{ end }}">管理</a>
+        <a href="/logout" class="nav-pill">退出</a>
+      </nav>
+    </header>
+
+    <main class="panel panel-wide">
+      <div class="management-tabs">
+        <div class="management-tab-list" role="tablist" aria-label="分享记录">
+          <button type="button" class="management-tab is-active" role="tab" aria-selected="true" aria-controls="active-shares" data-management-tab="active">
+            分享中 <span data-tab-count="active">{{ len .Shares }}</span>
+          </button>
+          <button type="button" class="management-tab" role="tab" aria-selected="false" aria-controls="deleted-shares" data-management-tab="deleted">
+            已删除 <span data-tab-count="deleted">{{ len .DeletedShares }}</span>
+          </button>
+        </div>
+
+        <section class="management-tab-panel is-active" id="active-shares" role="tabpanel" data-management-panel="active">
+          <section class="share-list" data-active-share-list>
+        {{ range .Shares }}
+        <article class="share-item" data-share-id="{{ .ID }}">
+          <div class="share-item__main">
+            <div class="share-item__heading">
+              <h2 class="truncate">{{ .Title }}</h2>
+              <div class="share-item__badges">
+                {{ if .HasPassword }}<span class="badge badge-subtle">有提取码</span>{{ end }}
+                <span class="badge badge-{{ .Status }}">{{ .Status }}</span>
+              </div>
+            </div>
+            <div class="share-item__meta">
+              {{ if eq .FileCount 1 }}
+              <span class="share-item__file mono truncate" title="{{ .FileName }}">{{ .FileName }} · {{ formatSize .TotalSize }}</span>
+              {{ else }}
+              <span class="share-item__file">{{ .FileCount }} 个文件 · {{ formatSize .TotalSize }}</span>
+              {{ end }}
+              <span class="share-item__time">创建：{{ formatTime .CreatedAt }}</span>
+              <span class="share-item__time" data-share-expiry-time>过期：{{ formatExpiry .ExpiresAt }}</span>
+              <span class="share-item__time">下载 {{ .DownloadCount }} 次</span>
+            </div>
+          </div>
+          <div class="share-item__actions">
+            {{ if gt .FileCount 1 }}
+            <button type="button" class="button button-ghost button-compact" data-toggle-files="{{ .ID }}" aria-expanded="false" aria-controls="files-{{ .ID }}">
+              <svg class="disclosure-icon" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+              <span>展开</span>
+            </button>
+            {{ end }}
+            <button type="button" class="button button-secondary button-compact" data-copy-value="{{ .ShareURL }}" title="{{ .ShareURL }}">
+              <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect width="14" height="14" x="8" y="8" rx="2"></rect>
+                <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path>
+              </svg>
+              复制链接
+            </button>
+            <button type="button" class="button button-danger button-icon" data-delete-share="{{ .ID }}" aria-label="删除分享" title="删除分享">
+              <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 6h18"></path>
+                <path d="M8 6V4h8v2"></path>
+                <path d="M19 6l-1 14H6L5 6"></path>
+                <path d="M10 11v5M14 11v5"></path>
+              </svg>
+            </button>
+          </div>
+          {{ if gt .FileCount 1 }}
+          <div class="share-files" id="files-{{ .ID }}" hidden>
+            {{ range .Files }}
+            <div class="share-file-row">
+              <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
+              </svg>
+              <span class="mono truncate" title="{{ .FileName }}">{{ .FileName }}</span>
+              <span class="share-file-row__size">{{ formatSize .Size }}</span>
+            </div>
+            {{ end }}
+          </div>
+          {{ end }}
+        </article>
+        {{ end }}
+          </section>
+          <section class="admin-empty-state" data-active-empty {{ if .Shares }}hidden{{ end }}>
+            <h2>还没有分享内容</h2>
+            <p>创建分享后会显示在这里</p>
+            <a href="/upload" class="button button-primary button-compact">前往上传</a>
+          </section>
+        </section>
+
+        <section class="management-tab-panel" id="deleted-shares" role="tabpanel" data-management-panel="deleted" hidden>
+          <section class="share-list" data-deleted-share-list>
+            {{ range .DeletedShares }}
+            <article class="share-item share-item--deleted">
+              <div class="share-item__main">
+                <div class="share-item__heading">
+                  <h2 class="truncate">{{ .Title }}</h2>
+                  <div class="share-item__badges">
+                    {{ if .HasPassword }}<span class="badge badge-subtle">有提取码</span>{{ end }}
+                    <span class="badge badge-deleted">已删除</span>
+                  </div>
+                </div>
+                <div class="share-item__meta">
+                  {{ if eq .FileCount 1 }}
+                  <span class="share-item__file mono truncate" title="{{ .FileName }}">{{ .FileName }} · {{ formatSize .TotalSize }}</span>
+                  {{ else }}
+                  <span class="share-item__file">{{ .FileCount }} 个文件 · {{ formatSize .TotalSize }}</span>
+                  {{ end }}
+                  <span class="share-item__time">创建：{{ formatTime .CreatedAt }}</span>
+                  <span class="share-item__time" data-share-deleted-time>删除：{{ formatDeletedTime .DeletedAt }}</span>
+                  <span class="share-item__time">下载 {{ .DownloadCount }} 次</span>
+                </div>
+              </div>
+              <div class="share-item__actions">
+                {{ if gt .FileCount 1 }}
+                <button type="button" class="button button-ghost button-compact" data-toggle-files="{{ .ID }}" aria-expanded="false" aria-controls="files-deleted-{{ .ID }}">
+                  <svg class="disclosure-icon" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="6 9 12 15 18 9"></polyline>
+                  </svg>
+                  <span>展开</span>
+                </button>
+                {{ end }}
+                <button type="button" class="button button-danger button-icon" data-purge-share="{{ .ID }}" aria-label="清除记录" title="清除记录">
+                  <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 6h18"></path>
+                    <path d="M8 6V4h8v2"></path>
+                    <path d="M19 6l-1 14H6L5 6"></path>
+                    <path d="M10 11v5M14 11v5"></path>
+                  </svg>
+                </button>
+              </div>
+              {{ if gt .FileCount 1 }}
+              <div class="share-files" id="files-deleted-{{ .ID }}" hidden>
+                {{ range .Files }}
+                <div class="share-file-row">
+                  <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                    <polyline points="14 2 14 8 20 8"></polyline>
+                  </svg>
+                  <span class="mono truncate" title="{{ .FileName }}">{{ .FileName }}</span>
+                  <span class="share-file-row__size">{{ formatSize .Size }}</span>
+                </div>
+                {{ end }}
+              </div>
+              {{ end }}
+            </article>
+            {{ end }}
+          </section>
+          <section class="admin-empty-state" data-deleted-empty {{ if .DeletedShares }}hidden{{ end }}>
+            <h2>没有已删除记录</h2>
+            <p>删除的分享会保留元数据记录</p>
+          </section>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <div class="modal-backdrop" data-delete-modal hidden>
+    <section class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-dialog-title" aria-describedby="delete-dialog-description">
+      <div class="confirm-dialog__icon" aria-hidden="true">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 6h18"></path>
+          <path d="M8 6V4h8v2"></path>
+          <path d="M19 6l-1 14H6L5 6"></path>
+          <path d="M10 11v5M14 11v5"></path>
+        </svg>
+      </div>
+      <div class="confirm-dialog__content">
+        <h2 id="delete-dialog-title" data-delete-modal-title>删除这条分享？</h2>
+        <p id="delete-dialog-description" data-delete-modal-description>删除后链接会立即失效，本地文件也会被移除。分享记录会保留在已删除列表中。</p>
+        <p class="form-message is-error" data-delete-modal-message hidden></p>
+      </div>
+      <div class="confirm-dialog__actions">
+        <button type="button" class="button button-ghost button-compact" data-delete-modal-cancel>取消</button>
+        <button type="button" class="button button-danger-solid button-compact" data-delete-modal-confirm>删除</button>
+      </div>
+    </section>
+  </div>
+
+  <script src="/static/app.js?v=20260711-21"></script>
+</body>
+</html>

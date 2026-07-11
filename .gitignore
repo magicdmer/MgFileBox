@@ -26,6 +26,19 @@ go.work.sum
 
 # env file
 .env
+.env.local
+
+# Runtime data
+data/*.db
+data/uploads/
+data/preview/
+
+# Build output
+bin/
+dist/
+
+# Tooling/local workspace metadata
+.trae/
 
 # Editor/IDE
 # .idea/

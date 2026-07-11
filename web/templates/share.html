@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ .Title }} - MgFileBox</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/app.css?v=20260711-21">
+</head>
+<body class="{{ if .Locked }}auth-shell{{ end }}">
+  {{ if .Locked }}
+  <main class="auth-layout auth-layout--single">
+    <section class="auth-panel auth-panel--centered">
+      <div class="login-brand">
+        <svg aria-hidden="true" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+          <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+          <line x1="12" y1="22.08" x2="12" y2="12"></line>
+        </svg>
+        <h1 class="auth-title">MgFileBox</h1>
+      </div>
+      <p class="auth-subtitle muted">请输入提取码继续访问</p>
+
+      <form class="auth-form stack-lg" method="post" action="/s/{{ .Share.ID }}/unlock">
+        <div class="field">
+          <label class="sr-only" for="share-code">提取码</label>
+          <input id="share-code" class="input-large" type="password" name="password" placeholder="提取码" autocomplete="current-password" required>
+        </div>
+        <button type="submit" class="button button-primary button-large button-block">进入分享</button>
+        {{ if .Error }}<p class="form-message is-error">{{ .Error }}</p>{{ end }}
+      </form>
+    </section>
+  </main>
+  {{ else }}
+  <main class="public-shell share-shell">
+    <section class="panel share-panel">
+      <header class="share-page-header">
+        <div class="share-brand">
+          <svg aria-hidden="true" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+            <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+            <line x1="12" y1="22.08" x2="12" y2="12"></line>
+          </svg>
+          <span>MgFileBox</span>
+        </div>
+        <h1>{{ if .Share }}{{ .Share.Title }}{{ else }}分享不可用{{ end }}</h1>
+      </header>
+
+      {{ if .Deleted }}
+      <section class="share-status">
+        <h2>这条分享已被删除</h2>
+        <p class="muted">文件已不可访问</p>
+      </section>
+      {{ else if .Expired }}
+      <section class="share-status">
+        <h2>这条分享已过期</h2>
+        <p class="muted">文件已不可访问</p>
+      </section>
+      {{ else if .Share }}
+      <section class="share-content">
+        <div class="share-meta-line">
+          <div class="share-meta-line__group">
+            <span>创建：{{ formatTime .Share.CreatedAt }}</span>
+            <span>过期：{{ formatExpiry .Share.ExpiresAt }}</span>
+          </div>
+          <span class="share-meta-line__count">下载 {{ .DownloadCount }} 次</span>
+        </div>
+
+        <section class="share-files-section">
+          <div class="download-list">
+            {{ range .Share.Files }}
+            <div class="download-row">
+              <div class="download-row__info">
+                <strong class="mono truncate">{{ .FileName }}</strong>
+                <span>{{ formatSize .Size }}</span>
+              </div>
+              <a href="/s/{{ $.Share.ID }}/download?file={{ .ID }}" class="button button-primary button-compact">下载</a>
+            </div>
+            {{ end }}
+          </div>
+        </section>
+      </section>
+      {{ else }}
+      <section class="share-status">
+        <h2>找不到这条分享</h2>
+        <p class="muted">请检查链接是否正确</p>
+      </section>
+      {{ end }}
+    </section>
+  </main>
+  {{ end }}
+
+  <script src="/static/app.js?v=20260711-21"></script>
+</body>
+</html>
