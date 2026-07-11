@@ -674,11 +674,32 @@ h2 {
 }
 
 .selected-file-row {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
   min-height: 42px;
   justify-content: space-between;
   gap: 12px;
   padding: 6px 8px;
   border-radius: 9px;
+}
+
+.selected-file-row__progress {
+  position: absolute;
+  z-index: 0;
+  inset: 0 auto 0 0;
+  width: var(--upload-progress, 0%);
+  border-radius: inherit;
+  background: rgba(94, 75, 138, 0.14);
+  transition: width 0.2s ease;
+  pointer-events: none;
+}
+
+.selected-file-row__main,
+.selected-file-row__size,
+.selected-file-row__remove {
+  position: relative;
+  z-index: 1;
 }
 
 .selected-file-row:nth-child(odd) {

@@ -48,6 +48,17 @@
 
     let selectedFiles = [];
 
+    const updateUploadProgress = (loaded, total) => {
+      let remaining = total > 0 ? Math.min(loaded / total, 1) * selectedFiles.reduce((sum, file) => sum + file.size, 0) : 0;
+
+      $$(".selected-file-row", selectedFilesList).forEach((row, index) => {
+        const fileSize = selectedFiles[index] ? selectedFiles[index].size : 0;
+        const progress = fileSize > 0 ? Math.min(remaining / fileSize, 1) : 0;
+        row.style.setProperty("--upload-progress", `${progress * 100}%`);
+        remaining = Math.max(remaining - fileSize, 0);
+      });
+    };
+
     const formatFileSize = (size) => {
       if (size < 1024) return `${size} B`;
       if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
@@ -82,6 +93,11 @@
       selectedFiles.forEach((file, index) => {
         const row = document.createElement("div");
         row.className = "selected-file-row";
+        row.style.setProperty("--upload-progress", "0%");
+
+        const progress = document.createElement("div");
+        progress.className = "selected-file-row__progress";
+        progress.setAttribute("aria-hidden", "true");
 
         const main = document.createElement("div");
         main.className = "selected-file-row__main";
@@ -110,7 +126,7 @@
           updateLabel();
         });
 
-        row.append(main, size, remove);
+        row.append(progress, main, size, remove);
         selectedFilesList.appendChild(row);
       });
     };
@@ -162,6 +178,7 @@
 
     const form = fileInput.closest("form");
     if (form) {
+      form.updateUploadProgress = updateUploadProgress;
       form.addEventListener("reset", () => {
         selectedFiles = [];
         syncInputFiles();
@@ -230,13 +247,30 @@
 
       try {
         const data = new FormData(form);
-        const response = await fetch("/api/shares/file", {
-          method: "POST",
-          body: data,
+        const payload = await new Promise((resolve, reject) => {
+          const request = new XMLHttpRequest();
+          request.open("POST", "/api/shares/file");
+          request.responseType = "json";
+          request.upload.addEventListener("progress", (progressEvent) => {
+            if (progressEvent.lengthComputable && form.updateUploadProgress) {
+              form.updateUploadProgress(progressEvent.loaded, progressEvent.total);
+            }
+          });
+          request.addEventListener("load", () => {
+            const responsePayload = request.response || {};
+            if (request.status < 200 || request.status >= 300 || !responsePayload.success) {
+              resolve({ success: false, message: responsePayload.message || "创建分享失败" });
+              return;
+            }
+            if (form.updateUploadProgress) form.updateUploadProgress(1, 1);
+            resolve(responsePayload);
+          });
+          request.addEventListener("error", reject);
+          request.addEventListener("abort", reject);
+          request.send(data);
         });
 
-        const payload = await response.json();
-        if (!response.ok || !payload.success) {
+        if (!payload.success) {
           setMessage(message, payload.message || "创建分享失败", "error");
           resultCard.hidden = true;
           return;
