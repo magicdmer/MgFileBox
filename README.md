@@ -2,6 +2,11 @@
 
 MgFileBox 是一个面向个人 VPS 部署的私有文件分享站。它提供管理员登录、文件上传、分享链接、提取码、过期清理和分享管理能力，适合用于个人临时传文件、向指定对象分享文件或搭建轻量私有网盘入口。
 
+## 预览图
+[预览页面](PREVIEW.md)
+
+<img width="800" height="500" alt="file_upload" src="https://github.com/user-attachments/assets/44f8a464-2040-4012-b497-917617845df8" />
+
 ## 功能特性
 
 - 管理员密码登录
