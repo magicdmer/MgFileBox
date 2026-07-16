@@ -236,19 +236,75 @@
     const message = $("#upload-message");
     const resetButton = $("#reset-share-form");
     const submitButton = $("button[type=\"submit\"]", form);
+    const submitLabel = submitButton.textContent;
+    let activeRequest = null;
+    let isUploading = false;
+
+    const getUploadErrorMessage = (request, responsePayload) => {
+      let redirectedToLogin = false;
+      try {
+        redirectedToLogin = new URL(request.responseURL, window.location.href).pathname === "/login";
+      } catch (error) {
+        redirectedToLogin = false;
+      }
+
+      if (request.status === 401 || request.status === 403 || redirectedToLogin) {
+        return "登录状态已失效，请重新登录";
+      }
+      if (responsePayload && typeof responsePayload.message === "string" && responsePayload.message.trim()) {
+        return responsePayload.message;
+      }
+      if (request.status === 413) {
+        return "文件总大小超过服务器允许的上传上限，请减小文件后重试";
+      }
+      if (request.status === 408 || request.status === 504) {
+        return "上传超时，请检查网络后重试";
+      }
+      if (request.status === 502 || request.status === 503) {
+        return "上传服务暂时不可用，请稍后重试";
+      }
+      if (request.status >= 500) {
+        return "服务器处理上传时发生错误，请稍后重试";
+      }
+      return "创建分享失败，请稍后重试";
+    };
+
+    const setSubmitState = (state) => {
+      submitButton.classList.toggle("button-primary", state !== "uploading");
+      submitButton.classList.toggle("button-danger-solid", state === "uploading");
+
+      if (state === "uploading") {
+        submitButton.disabled = false;
+        submitButton.textContent = "取消上传";
+        return;
+      }
+      if (state === "processing") {
+        submitButton.disabled = true;
+        submitButton.textContent = "正在生成分享链接…";
+        return;
+      }
+
+      submitButton.disabled = false;
+      submitButton.textContent = submitLabel;
+    };
 
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
-      setMessage(message, "", "");
 
-      const submitLabel = submitButton.textContent;
-      submitButton.disabled = true;
-      submitButton.textContent = "正在创建…";
+      if (activeRequest && isUploading) {
+        activeRequest.abort();
+        return;
+      }
+
+      setMessage(message, "", "");
+      setSubmitState("uploading");
 
       try {
         const data = new FormData(form);
         const payload = await new Promise((resolve, reject) => {
           const request = new XMLHttpRequest();
+          activeRequest = request;
+          isUploading = true;
           request.open("POST", "/api/shares/file");
           request.responseType = "json";
           request.upload.addEventListener("progress", (progressEvent) => {
@@ -256,21 +312,34 @@
               form.updateUploadProgress(progressEvent.loaded, progressEvent.total);
             }
           });
+          request.upload.addEventListener("load", () => {
+            isUploading = false;
+            setSubmitState("processing");
+          });
           request.addEventListener("load", () => {
             const responsePayload = request.response || {};
             if (request.status < 200 || request.status >= 300 || !responsePayload.success) {
-              resolve({ success: false, message: responsePayload.message || "创建分享失败" });
+              resolve({ success: false, message: getUploadErrorMessage(request, responsePayload) });
               return;
             }
             if (form.updateUploadProgress) form.updateUploadProgress(1, 1);
             resolve(responsePayload);
           });
-          request.addEventListener("error", reject);
-          request.addEventListener("abort", reject);
+          request.addEventListener("abort", () => {
+            const error = new Error("upload cancelled");
+            error.name = "AbortError";
+            reject(error);
+          });
+          request.addEventListener("error", () => {
+            const error = new Error("network error");
+            error.name = "NetworkError";
+            reject(error);
+          });
           request.send(data);
         });
 
         if (!payload.success) {
+          if (form.updateUploadProgress) form.updateUploadProgress(0, 1);
           setMessage(message, payload.message || "创建分享失败", "error");
           resultCard.hidden = true;
           return;
@@ -284,10 +353,19 @@
         setMessage(message, "", "");
         resultCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
       } catch (error) {
-        setMessage(message, "上传中断，请确认文件未被移动、覆盖保存或同步修改，然后重新选择文件再试", "error");
+        if (form.updateUploadProgress) form.updateUploadProgress(0, 1);
+        if (error && error.name === "AbortError") {
+          setMessage(message, "已取消上传", "");
+        } else if (error && error.name === "NetworkError") {
+          setMessage(message, "网络连接中断，请检查网络后重试", "error");
+        } else {
+          setMessage(message, "上传中断，请确认文件未被移动、覆盖保存或同步修改，然后重新选择文件再试", "error");
+        }
+        resultCard.hidden = true;
       } finally {
-        submitButton.disabled = false;
-        submitButton.textContent = submitLabel;
+        activeRequest = null;
+        isUploading = false;
+        setSubmitState("idle");
       }
     });
 
