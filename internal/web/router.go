@@ -26,12 +26,14 @@ type Server struct {
 	engine       *gin.Engine
 	svc          *service.Service
 	cfg          *config.Config
+	version      string
 	loginLimiter *loginLimiter
 }
 
 type viewData struct {
 	Title         string
 	ActiveNav     string
+	Version       string
 	Now           time.Time
 	Error         string
 	Share         *models.Share
@@ -59,7 +61,7 @@ const (
 	loginLockout     = 15 * time.Minute
 )
 
-func NewServer(cfg *config.Config, svc *service.Service) (*Server, error) {
+func NewServer(cfg *config.Config, svc *service.Service, version string) (*Server, error) {
 	gin.SetMode(gin.ReleaseMode)
 
 	engine := gin.New()
@@ -95,6 +97,7 @@ func NewServer(cfg *config.Config, svc *service.Service) (*Server, error) {
 		engine:       engine,
 		svc:          svc,
 		cfg:          cfg,
+		version:      version,
 		loginLimiter: newLoginLimiter(),
 	}
 	server.registerRoutes()
@@ -174,6 +177,7 @@ func (s *Server) registerRoutes() {
 	admin.Use(s.requireAdmin())
 	admin.GET("/", func(c *gin.Context) { c.Redirect(http.StatusFound, "/upload") })
 	admin.GET("/upload", s.handleUploadPage)
+	admin.GET("/about", s.handleAboutPage)
 	admin.GET("/logout", s.handleLogout)
 	admin.GET("/admin/shares", s.handleAdminPage)
 	admin.POST("/api/shares/file", s.handleCreateFileShare)
@@ -211,6 +215,15 @@ func (s *Server) handleUploadPage(c *gin.Context) {
 	c.HTML(http.StatusOK, "upload.html", viewData{
 		Title:     "上传分享",
 		ActiveNav: "upload",
+		Now:       time.Now(),
+	})
+}
+
+func (s *Server) handleAboutPage(c *gin.Context) {
+	c.HTML(http.StatusOK, "about.html", viewData{
+		Title:     "关于",
+		ActiveNav: "about",
+		Version:   s.version,
 		Now:       time.Now(),
 	})
 }

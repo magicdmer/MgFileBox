@@ -4,15 +4,16 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{{ .Title }} - MgFileBox</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=20260711-21">
+  <link rel="stylesheet" href="/static/app.css?v=20260906-01">
 </head>
 <body>
   <div class="app-shell">
     <header class="topbar">
-      <a href="/upload" class="brand-mark">
+      <a href="/upload" class="brand-mark" data-app-view="upload">
         <svg class="brand-mark__cube" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
           <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
@@ -21,8 +22,9 @@
         <span class="brand-mark__name">MgFileBox</span>
       </a>
       <nav class="nav-pills">
-        <a href="/upload" class="nav-pill">上传</a>
-        <a href="/admin/shares" class="nav-pill {{ if eq .ActiveNav "admin" }}is-active{{ end }}">管理</a>
+        <a href="/upload" class="nav-pill" data-app-view="upload">上传</a>
+        <a href="/admin/shares" class="nav-pill {{ if eq .ActiveNav "admin" }}is-active{{ end }}" data-app-view="admin">管理</a>
+        <a href="/about" class="nav-pill" data-app-view="about">关于</a>
         <a href="/logout" class="nav-pill">退出</a>
       </nav>
     </header>
@@ -52,7 +54,7 @@
             </div>
             <div class="share-item__meta">
               {{ if eq .FileCount 1 }}
-              <span class="share-item__file mono truncate" title="{{ .FileName }}">{{ .FileName }} · {{ formatSize .TotalSize }}</span>
+              <span class="share-item__file mono">大小：{{ formatSize .TotalSize }}</span>
               {{ else }}
               <span class="share-item__file">{{ .FileCount }} 个文件 · {{ formatSize .TotalSize }}</span>
               {{ end }}
@@ -124,7 +126,7 @@
                 </div>
                 <div class="share-item__meta">
                   {{ if eq .FileCount 1 }}
-                  <span class="share-item__file mono truncate" title="{{ .FileName }}">{{ .FileName }} · {{ formatSize .TotalSize }}</span>
+                  <span class="share-item__file mono">大小：{{ formatSize .TotalSize }}</span>
                   {{ else }}
                   <span class="share-item__file">{{ .FileCount }} 个文件 · {{ formatSize .TotalSize }}</span>
                   {{ end }}
@@ -199,6 +201,6 @@
     </section>
   </div>
 
-  <script src="/static/app.js?v=20260711-21"></script>
+  <script src="/static/app.js?v=20260906-01"></script>
 </body>
 </html>

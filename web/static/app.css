@@ -1299,6 +1299,82 @@ h2 {
   flex-shrink: 0;
 }
 
+.about-page {
+  min-height: 500px;
+  display: grid;
+  place-items: center;
+}
+
+.about-content {
+  width: min(620px, 100%);
+  padding: 28px 0 20px;
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  text-align: center;
+}
+
+.about-logo {
+  width: 72px;
+  height: 72px;
+  display: grid;
+  place-items: center;
+  border-radius: 20px;
+  color: #ffffff;
+  background: linear-gradient(145deg, var(--accent), var(--accent-strong));
+  border: 4px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 12px 28px rgba(74, 56, 114, 0.2);
+}
+
+.about-content h1 {
+  margin: 22px 0 6px;
+  font-size: 2rem;
+}
+
+.about-tagline,
+.about-description,
+.about-note,
+.about-license {
+  color: var(--text-soft);
+}
+
+.about-tagline {
+  margin: 0;
+}
+
+.about-version {
+  margin-top: 20px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  color: var(--accent-strong);
+  background: rgba(94, 75, 138, 0.08);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.about-description {
+  margin: 24px 0 0;
+  line-height: 1.8;
+}
+
+.about-actions {
+  margin-top: 24px;
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.about-note {
+  margin: 20px 0 0;
+  font-size: 0.86rem;
+}
+
+.about-license {
+  margin: 18px 0 0;
+  font-size: 0.8rem;
+}
+
 .badge {
   display: inline-flex;
   align-items: center;
@@ -1626,7 +1702,7 @@ h2 {
   .nav-pills {
     width: 100%;
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 4px;
   }
 

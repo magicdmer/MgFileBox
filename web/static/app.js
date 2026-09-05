@@ -649,7 +649,7 @@
     modal.addEventListener("click", (event) => {
       if (event.target === modal) closeModal();
     });
-    document.addEventListener("keydown", (event) => {
+    modal.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && !modal.hidden) closeModal();
     });
   }
@@ -708,13 +708,132 @@
     if (label) label.textContent = expanded ? "展开" : "收起";
   }
 
-  bindLoginForm();
-  bindDropzone();
-  bindCustomSelect();
-  bindUploadForm();
-  bindCopyButtons();
-  bindDeleteButtons();
-  bindDownloadCounters();
-  bindFileDisclosures();
-  bindManagementTabs();
+  function bindCurrentView(main) {
+    if (!main || main.dataset.viewBound === "true") return;
+    main.dataset.viewBound = "true";
+
+    if ($("#login-form", main)) bindLoginForm();
+    if ($("#share-form", main)) {
+      bindDropzone();
+      bindCustomSelect();
+      bindUploadForm();
+    }
+    if ($("[data-management-tab]", main)) {
+      bindDeleteButtons();
+      bindFileDisclosures();
+      bindManagementTabs();
+    }
+
+    bindCopyButtons();
+    bindDownloadCounters();
+  }
+
+  function bindAppNavigation() {
+    const shell = $(".app-shell");
+    const links = $$('[data-app-view]');
+    if (!shell || links.length === 0) return;
+
+    const routes = {
+      upload: "/upload",
+      admin: "/admin/shares",
+      about: "/about",
+    };
+    const initialMain = $(".app-shell > main");
+    const viewForPath = () => {
+      if (window.location.pathname === routes.admin) return "admin";
+      if (window.location.pathname === routes.about) return "about";
+      return "upload";
+    };
+    const initialView = viewForPath();
+    const uploadView = {
+      main: initialView === "upload" ? initialMain : null,
+      title: initialView === "upload" ? document.title : "上传文件 - MgFileBox",
+      scrollY: 0,
+    };
+    let currentView = initialView;
+    let switching = false;
+
+    const updateNavigation = (view) => {
+      $$(".nav-pill[data-app-view]").forEach((link) => {
+        link.classList.toggle("is-active", link.dataset.appView === view);
+      });
+    };
+
+    const loadView = async (view) => {
+      const response = await fetch(routes[view]);
+      const responsePath = new URL(response.url, window.location.href).pathname;
+      if (!response.ok || responsePath === "/login") {
+        window.location.href = responsePath === "/login" ? "/login" : routes[view];
+        return null;
+      }
+
+      const page = new DOMParser().parseFromString(await response.text(), "text/html");
+      const main = $(".app-shell > main", page);
+      if (!main) {
+        window.location.href = routes[view];
+        return null;
+      }
+
+      return {
+        main,
+        modal: $("[data-delete-modal]", page),
+        title: page.title,
+      };
+    };
+
+    const switchView = async (view, pushHistory) => {
+      if (!routes[view] || view === currentView || switching) return;
+      switching = true;
+
+      try {
+        const currentMain = $(".app-shell > main");
+        let next = null;
+
+        if (view === "upload" && uploadView.main) {
+          next = uploadView;
+        } else {
+          next = await loadView(view);
+          if (!next) return;
+          if (view === "upload") {
+            uploadView.main = next.main;
+            uploadView.title = next.title;
+          }
+        }
+
+        if (currentView === "upload") uploadView.scrollY = window.scrollY;
+        currentMain.replaceWith(next.main);
+
+        const oldModal = $("[data-delete-modal]");
+        if (oldModal) oldModal.remove();
+        if (view === "admin" && next.modal) document.body.append(next.modal);
+
+        currentView = view;
+        document.title = next.title;
+        updateNavigation(view);
+        bindCurrentView(next.main);
+
+        if (pushHistory) history.pushState({ mgFileBoxView: view }, "", routes[view]);
+        window.scrollTo(0, view === "upload" ? uploadView.scrollY : 0);
+      } catch (error) {
+        window.location.href = routes[view];
+      } finally {
+        switching = false;
+      }
+    };
+
+    links.forEach((link) => {
+      link.addEventListener("click", (event) => {
+        if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        event.preventDefault();
+        switchView(link.dataset.appView, true);
+      });
+    });
+
+    window.addEventListener("popstate", () => {
+      switchView(viewForPath(), false);
+    });
+  }
+
+  bindCurrentView($("main"));
+  bindAppNavigation();
 })();

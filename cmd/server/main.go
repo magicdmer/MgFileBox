@@ -37,7 +37,7 @@ func main() {
 
 	svc := service.New(repo, cfg)
 
-	server, err := web.NewServer(cfg, svc)
+	server, err := web.NewServer(cfg, svc, version)
 	if err != nil {
 		log.Fatalf("build server: %v", err)
 	}
