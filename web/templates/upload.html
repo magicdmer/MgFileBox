@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=20260906-01">
+  <link rel="stylesheet" href="/static/app.css?v=20261101-13">
 </head>
 <body>
   <div class="app-shell">
@@ -31,7 +31,7 @@
 
     <main class="panel panel-wide">
       <section class="stack-xl">
-        <form id="share-form" class="upload-layout" enctype="multipart/form-data">
+        <form id="share-form" class="upload-layout" enctype="multipart/form-data" data-max-upload-size="{{ .MaxUploadSize }}">
           <!-- 上卡片：拖拽上传区 -->
           <div class="panel-wide">
             <label class="upload-dropzone" for="file-input" id="dropzone">
@@ -45,6 +45,7 @@
               </div>
               <div class="upload-text">
                 <span class="text-soft" id="file-name" style="font-size: 0.95rem;">点击选择文件，也可以拖拽到这里</span>
+                {{ if gt .MaxUploadSize 0 }}<span class="upload-size-limit" aria-label="上传文件总大小上限：{{ formatSize .MaxUploadSize }}" title="上传文件总大小上限：{{ formatSize .MaxUploadSize }}">上限 {{ formatUploadLimit .MaxUploadSize }}</span>{{ end }}
               </div>
             </label>
             <section class="selected-files" id="selected-files" aria-live="polite" hidden>
@@ -66,6 +67,11 @@
 
           <!-- 下卡片：配置区 -->
           <section class="panel-wide config-card">
+            <label class="field description-field">
+              <span>分享说明（可选）</span>
+              <textarea name="description" rows="4" maxlength="2000" placeholder="例如：文件用途、使用方法或注意事项" aria-describedby="description-hint"></textarea>
+              <small id="description-hint" class="muted">支持多行文字，最多 2000 字，将显示在分享页。</small>
+            </label>
             <div class="grid-two">
               <label class="field">
                 <span>提取码</span>
@@ -108,7 +114,6 @@
           <!-- 独立居中的按钮 -->
           <div class="action-row-center">
             <button type="submit" class="button button-primary">生成分享链接</button>
-            <p id="upload-message" class="form-message" hidden></p>
           </div>
         </form>
 
@@ -141,6 +146,6 @@
     </main>
   </div>
 
-  <script src="/static/app.js?v=20260906-01"></script>
+  <script src="/static/app.js?v=20261101-14"></script>
 </body>
 </html>

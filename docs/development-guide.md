@@ -10,9 +10,9 @@ MgFileBox 是一个部署在个人 VPS 上的私有文件分享站。当前功�
 - 文件上传并生成分享链接
 - 单条分享访问密码和提取码直达链接
 - 分享过期时间，支持永不过期
-- 管理页查看有效分享和已删除分享
+- 管理页查看分享中、已取消、已过期和已删除的记录，支持取消分享和重新分享
 - 软删除分享并移除本地文件
-- 定时清理过期分享和过期管理员会话
+- 分享过期后禁止访问并保留文件，由管理员手动删除；定时仅清理过期管理员会话
 
 项目是单体 Go Web 服务，使用 Gin、SQLite 和服务端 HTML 模板，不包含前后端分离构建链。
 
@@ -132,8 +132,8 @@ go test ./...
 | `UPLOAD_DIR` | 上传文件目录 | `./data/uploads` |
 | `DB_PATH` | SQLite 数据库路径 | `./data/app.db` |
 | `SESSION_TTL_HOURS` | 管理员会话有效小时数 | `24` |
-| `CLEANUP_INTERVAL_MINUTES` | 定时清理间隔 | `30` |
-| `MAX_UPLOAD_SIZE_MB` | Gin multipart 内存上限 | `512` |
+| `CLEANUP_INTERVAL_MINUTES` | 过期管理员会话记录清理间隔（分钟），`0` 关闭；不清理分享文件 | `30` |
+| `MAX_UPLOAD_SIZE_MB` | 每次上传的文件总大小上限（MB，正整数），多文件合计计算 | `512` |
 
 注意：生产环境必须固定 `COOKIE_SECRET`。如果每次启动随机生成，已有分享的提取码加密值和解锁 cookie 会失效。
 
@@ -152,26 +152,30 @@ go test ./...
 创建文件分享：
 
 1. 管理员页面提交 multipart 表单到 `POST /api/shares/file`。
-2. `web.parseCommonInput` 解析标题、访问密码、过期小时数。
-3. `service.CreateFileShare` 生成分享 ID，保存上传文件到 `UPLOAD_DIR`。
+2. 上传页通过 `data-max-upload-size` 使用运行中服务的大小限制；上传框的上限标识仅在未选择文件时显示，选择文件后隐藏，清空后恢复。选择、拖入、移除文件时重新校验总大小，提交前再次校验，超限则显示自定义 Toast 且不发送文件，不再占用表单空间显示行内错误。Toast 不堆叠，约 4.5 秒后自动消失，支持手动关闭，鼠标悬停或键盘聚焦时暂停计时。请求体上限为配置的文件总大小加 1 MiB 表单开销，对已知 Content-Length 的超大请求立即拒绝，对分块上传则限制读取；超过请求体或文件总大小上限返回 413。multipart 内存阈值固定为 32 MiB，超过阈值的内容写入临时文件，请求处理结束后清理。
+3. `web.parseCommonInput` 解析标题、说明、访问密码、过期小时数。`service.CreateFileShare` 合计检查文件大小后生成分享 ID，将文件保存到 `UPLOAD_DIR`。写入或关闭失败时，先关闭并删除当前半文件，再清理此前已保存的文件；清理失败也向调用方返回错误，不创建分享记录。
 4. 如果设置访问密码，密码本身用 bcrypt hash 存储，同时使用 `COOKIE_SECRET` AES-GCM 加密明文提取码，用于生成带 `pickcode` 查询参数的管理页分享链接。
 5. `repository.CreateShare` 在一个事务里写入 `shares` 和 `share_files`。
 
 访问分享：
 
-1. 公开页面为 `GET /s/:id`。
-2. 分享不存在、已删除或已过期时渲染 `share.html` 的对应状态。
+1. 公开页面为 `GET /s/:id`，此处 `id` 是 `shares.public_id`，与管理操作使用的稳定记录 ID 分离。旧数据首次迁移时将原 ID 作为公开 ID，保证现有有效链接兼容。
+2. 分享不存在、已删除、已取消或已过期时渲染 `share.html` 的对应状态。
 3. 无密码分享直接可下载。
 4. 有密码分享需要提交 `POST /s/:id/unlock`，或使用管理页生成的 `?pickcode=` 链接。
 5. 解锁成功后写入 `mgbox_unlock_<shareID>` HttpOnly cookie，cookie 内容是 HMAC 签名值。
 6. 下载入口为 `GET /s/:id/download`，多文件分享通过 `?file=<fileID>` 指定文件。
+7. 管理页下载入口为 `GET /api/admin/shares/:id/download`，必须有有效管理员会话；允许下载已过期或带提取码的分享文件，但拒绝已删除分享。多文件同样通过 `?file=<fileID>` 指定，文件必须属于该分享。公开下载入口继续校验过期时间和提取码。
+8. 管理员调用 `POST /api/admin/shares/:id/cancel` 取消分享，只设置 `cancelled`，不删除文件；`GET /api/admin/shares/:id/settings` 读取说明、解密后的提取码和上次有效期，响应禁止缓存。
+9. `POST /api/admin/shares/:id/reshare` 仅允许重新分享已取消或已过期、未删除且文件存在的记录。复用原文件及记录 ID，更新公开 ID、说明、提取码和有效期，不复制文件；公开入口仅接受最新公开 ID，解锁签名也绑定公开 ID。旧链接不会再次生效，过期会话清理和数据库重启不会恢复旧链接。
+10. 取消或重新分享成功后，前端只更新当前文件记录的状态、图标、说明、提取码标识、有效期和复制链接，不刷新页面，以保留上传页正在进行的后台上传。
 
 删除和清理：
 
 1. 管理页删除调用 `POST /api/admin/shares/:id/delete`。
-2. `service.DeleteShare` 对数据库执行软删除，并删除本地文件。
-3. `cmd/server/main.go` 启动定时 worker 调用 `service.CleanupExpired`。
-4. 清理过期分享时，同样软删除数据库记录并移除本地文件，同时删除过期管理员会话。
+2. `service.DeleteShare` 逐个删除本地文件，文件已不存在也视为成功；全部成功后才对数据库执行软删除。失败时返回具体文件名和原因，保留原记录供管理员重试；多文件可能已部分删除。清除已删除记录前也会检查并删除历史残留文件，失败时保留记录。
+3. 分享过期后仅禁止访问，文件和分享记录保留，直到管理员手动删除。
+4. `cmd/server/main.go` 的 `runSessionCleanupWorker` 定时调用 `service.CleanupExpiredSessions`，只删除过期管理员会话记录；间隔设为 `0` 时不启动任务。
 
 ## 数据模型和数据库
 
@@ -179,7 +183,7 @@ SQLite 迁移写在 `internal/repository/sqlite.go` 的 `migrate` 方法中，�
 
 主要表：
 
-- `shares`：分享主表，包含标题、首个文件兼容字段、访问密码 hash、加密提取码、过期时间、删除时间。
+- `shares`：分享主表，包含稳定记录 ID、可更换的公开 ID、取消状态、标题、说明、首个文件兼容字段、访问密码 hash、加密提取码、有效期时长、过期时间和删除时间。
 - `share_files`：分享文件表，支持一个分享包含多个文件。
 - `admin_sessions`：管理员会话，保存 token hash，不保存原始 token。
 - `access_logs`：访问日志，目前记录查看和下载动作。
@@ -221,9 +225,9 @@ SQLite 迁移写在 `internal/repository/sqlite.go` 的 `migrate` 方法中，�
 
 调整过期或删除规则：
 
-1. 优先修改 `models.Share` 的状态判断方法或 `service.CleanupExpired`。
+1. 过期访问规则位于 `models.Share`；实际文件删除仅由 `service.DeleteShare` 执行，不能在会话清理任务中删除分享文件。
 2. 保持软删除语义：数据库记录保留，`deleted_at` 表示删除状态。
-3. 注意文件删除和数据库状态可能出现部分失败，现有实现以“先标记删除，再尽力删除文件”为主。
+3. 文件删除和数据库状态无法跨系统原子提交：先检查文件删除结果，再标记删除；失败时保留记录供重试，已不存在的文件不应阻止重试。
 4. 补充 `internal/service/service_test.go` 中对应场景。
 
 调整上传能力：

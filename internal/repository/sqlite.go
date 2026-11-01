@@ -101,6 +101,22 @@ func (r *Repository) migrate(ctx context.Context) error {
 	if err := r.ensureColumn(ctx, "shares", "pickcode_encrypted", "TEXT"); err != nil {
 		return err
 	}
+	if err := r.ensureColumn(ctx, "shares", "description", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	for column, columnType := range map[string]string{
+		"public_id": "TEXT", "cancelled": "INTEGER NOT NULL DEFAULT 0", "expires_hours": "INTEGER NOT NULL DEFAULT 24",
+	} {
+		if err := r.ensureColumn(ctx, "shares", column, columnType); err != nil {
+			return err
+		}
+	}
+	if _, err := r.db.ExecContext(ctx, `UPDATE shares SET public_id = id WHERE public_id IS NULL`); err != nil {
+		return err
+	}
+	if _, err := r.db.ExecContext(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_shares_public_id ON shares (public_id)`); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -147,10 +163,10 @@ func (r *Repository) CreateShare(ctx context.Context, share models.Share) error 
 
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO shares (
-			id, type, title, file_name, mime_type, storage_path, access_password_hash, pickcode_encrypted, expires_at, created_at, deleted_at
-		) VALUES (?, 'file', ?, ?, ?, ?, ?, ?, ?, ?, NULL)
-	`, share.ID, share.Title, share.FileName, share.MimeType, share.StoragePath,
-		share.AccessPasswordHash, share.PickcodeEncrypted, share.ExpiresAt.UTC(), share.CreatedAt.UTC())
+			id, type, title, description, file_name, mime_type, storage_path, access_password_hash, pickcode_encrypted, expires_at, created_at, deleted_at, public_id, cancelled, expires_hours
+		) VALUES (?, 'file', ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
+	`, share.ID, share.Title, share.Description, share.FileName, share.MimeType, share.StoragePath,
+		share.AccessPasswordHash, share.PickcodeEncrypted, share.ExpiresAt.UTC(), share.CreatedAt.UTC(), share.LinkID(), share.Cancelled, share.ExpiresHours)
 	if err != nil {
 		return err
 	}
@@ -181,7 +197,7 @@ func (r *Repository) CreateShare(ctx context.Context, share models.Share) error 
 
 func (r *Repository) GetShareByID(ctx context.Context, id string) (*models.Share, error) {
 	row := r.db.QueryRowContext(ctx, `
-		SELECT id, title, file_name, mime_type, storage_path, access_password_hash, COALESCE(pickcode_encrypted, ''), expires_at, created_at, deleted_at
+		SELECT id, title, description, file_name, mime_type, storage_path, access_password_hash, COALESCE(pickcode_encrypted, ''), expires_at, created_at, deleted_at, public_id, cancelled, expires_hours
 		FROM shares
 		WHERE id = ?
 	`, id)
@@ -198,9 +214,55 @@ func (r *Repository) GetShareByID(ctx context.Context, id string) (*models.Share
 	return share, nil
 }
 
+func (r *Repository) GetShareByPublicID(ctx context.Context, publicID string) (*models.Share, error) {
+	var id string
+	if err := r.db.QueryRowContext(ctx, `SELECT id FROM shares WHERE public_id = ?`, publicID).Scan(&id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	share, err := r.GetShareByID(ctx, id)
+	if err == nil && share.PublicID != publicID {
+		return nil, ErrNotFound
+	}
+	return share, err
+}
+
+func (r *Repository) CancelShare(ctx context.Context, id string) error {
+	result, err := r.db.ExecContext(ctx, `UPDATE shares SET cancelled = 1 WHERE id = ? AND deleted_at IS NULL`, id)
+	if err != nil {
+		return err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (r *Repository) Reshare(ctx context.Context, id, previousPublicID string, share models.Share) error {
+	result, err := r.db.ExecContext(ctx, `UPDATE shares SET public_id = ?, cancelled = 0, description = ?, access_password_hash = ?, pickcode_encrypted = ?, expires_at = ?, expires_hours = ? WHERE id = ? AND public_id = ? AND deleted_at IS NULL`,
+		share.PublicID, share.Description, share.AccessPasswordHash, share.PickcodeEncrypted, share.ExpiresAt.UTC(), share.ExpiresHours, id, previousPublicID)
+	if err != nil {
+		return err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func (r *Repository) ListShares(ctx context.Context) ([]models.Share, error) {
 	return r.listShares(ctx, `
-		SELECT id, title, file_name, mime_type, storage_path, access_password_hash, COALESCE(pickcode_encrypted, ''), expires_at, created_at, deleted_at
+		SELECT id, title, description, file_name, mime_type, storage_path, access_password_hash, COALESCE(pickcode_encrypted, ''), expires_at, created_at, deleted_at, public_id, cancelled, expires_hours
 		FROM shares
 		WHERE deleted_at IS NULL
 		ORDER BY created_at DESC
@@ -209,7 +271,7 @@ func (r *Repository) ListShares(ctx context.Context) ([]models.Share, error) {
 
 func (r *Repository) ListDeletedShares(ctx context.Context) ([]models.Share, error) {
 	return r.listShares(ctx, `
-		SELECT id, title, file_name, mime_type, storage_path, access_password_hash, COALESCE(pickcode_encrypted, ''), expires_at, created_at, deleted_at
+		SELECT id, title, description, file_name, mime_type, storage_path, access_password_hash, COALESCE(pickcode_encrypted, ''), expires_at, created_at, deleted_at, public_id, cancelled, expires_hours
 		FROM shares
 		WHERE deleted_at IS NOT NULL
 		ORDER BY deleted_at DESC
@@ -266,6 +328,21 @@ func (r *Repository) SoftDeleteShare(ctx context.Context, id string, deletedAt t
 		return err
 	}
 
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (r *Repository) UpdateShareDescription(ctx context.Context, id, description string) error {
+	result, err := r.db.ExecContext(ctx, `UPDATE shares SET description = ? WHERE id = ? AND deleted_at IS NULL`, description, id)
+	if err != nil {
+		return err
+	}
 	affected, err := result.RowsAffected()
 	if err != nil {
 		return err
@@ -397,14 +474,6 @@ func (r *Repository) CountSuccessfulDownloadsByShareIDs(ctx context.Context, sha
 	return counts, rows.Err()
 }
 
-func (r *Repository) ListExpiredFileShares(ctx context.Context, now time.Time) ([]models.Share, error) {
-	return r.listShares(ctx, `
-		SELECT id, title, file_name, mime_type, storage_path, access_password_hash, COALESCE(pickcode_encrypted, ''), expires_at, created_at, deleted_at
-		FROM shares
-		WHERE deleted_at IS NULL AND expires_at <= ?
-	`, now.UTC())
-}
-
 func (r *Repository) listShares(ctx context.Context, query string, args ...any) ([]models.Share, error) {
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -444,6 +513,7 @@ func scanShare(s scanner) (*models.Share, error) {
 	if err := s.Scan(
 		&share.ID,
 		&share.Title,
+		&share.Description,
 		&share.FileName,
 		&share.MimeType,
 		&share.StoragePath,
@@ -452,6 +522,9 @@ func scanShare(s scanner) (*models.Share, error) {
 		&share.ExpiresAt,
 		&share.CreatedAt,
 		&deletedAt,
+		&share.PublicID,
+		&share.Cancelled,
+		&share.ExpiresHours,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound

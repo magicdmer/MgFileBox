@@ -6,7 +6,11 @@ var NeverExpiresAt = time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC)
 
 type Share struct {
 	ID                 string
+	PublicID           string
+	Cancelled          bool
+	ExpiresHours       int
 	Title              string
+	Description        string
 	FileName           string
 	MimeType           string
 	StoragePath        string
@@ -32,6 +36,13 @@ func (s Share) HasPassword() bool {
 	return s.AccessPasswordHash != ""
 }
 
+func (s Share) LinkID() string {
+	if s.PublicID != "" {
+		return s.PublicID
+	}
+	return s.ID
+}
+
 func (s Share) NeverExpires() bool {
 	return IsNeverExpiresTime(s.ExpiresAt)
 }
@@ -50,6 +61,9 @@ func (s Share) IsDeleted() bool {
 func (s Share) Status(now time.Time) string {
 	if s.IsDeleted() {
 		return "deleted"
+	}
+	if s.Cancelled {
+		return "cancelled"
 	}
 	if s.IsExpired(now) {
 		return "expired"
@@ -76,6 +90,7 @@ type AccessLog struct {
 
 type ShareInput struct {
 	Title          string
+	Description    string
 	AccessPassword string
 	ExpiresHours   int
 }
@@ -83,6 +98,7 @@ type ShareInput struct {
 type ShareSummary struct {
 	ID            string      `json:"id"`
 	Title         string      `json:"title"`
+	Description   string      `json:"description"`
 	FileName      string      `json:"fileName"`
 	HasPassword   bool        `json:"hasPassword"`
 	ExpiresAt     time.Time   `json:"expiresAt"`

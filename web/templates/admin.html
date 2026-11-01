@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=20260906-01">
+  <link rel="stylesheet" href="/static/app.css?v=20261101-13">
 </head>
 <body>
   <div class="app-shell">
@@ -33,7 +33,7 @@
       <div class="management-tabs">
         <div class="management-tab-list" role="tablist" aria-label="分享记录">
           <button type="button" class="management-tab is-active" role="tab" aria-selected="true" aria-controls="active-shares" data-management-tab="active">
-            分享中 <span data-tab-count="active">{{ len .Shares }}</span>
+            文件 <span data-tab-count="active">{{ len .Shares }}</span>
           </button>
           <button type="button" class="management-tab" role="tab" aria-selected="false" aria-controls="deleted-shares" data-management-tab="deleted">
             已删除 <span data-tab-count="deleted">{{ len .DeletedShares }}</span>
@@ -49,7 +49,7 @@
               <h2 class="truncate">{{ .Title }}</h2>
               <div class="share-item__badges">
                 {{ if .HasPassword }}<span class="badge badge-subtle">有提取码</span>{{ end }}
-                <span class="badge badge-{{ .Status }}">{{ .Status }}</span>
+                <span class="badge badge-{{ .Status }}">{{ if eq .Status "active" }}分享中{{ else if eq .Status "cancelled" }}已取消{{ else }}已过期{{ end }}</span>
               </div>
             </div>
             <div class="share-item__meta">
@@ -62,22 +62,57 @@
               <span class="share-item__time" data-share-expiry-time>过期：{{ formatExpiry .ExpiresAt }}</span>
               <span class="share-item__time">下载 {{ .DownloadCount }} 次</span>
             </div>
+            <details class="share-description-editor">
+              <summary>查看 / 编辑说明</summary>
+              <form data-description-form="{{ .ID }}" class="stack-lg">
+                <label class="field">
+                  <span>分享说明（可选）</span>
+                  <textarea name="description" rows="4" maxlength="2000" placeholder="填写文件用途、使用方法或注意事项">{{ .Description }}</textarea>
+                </label>
+                <div class="description-editor-actions">
+                  <button type="submit" class="button button-primary button-compact">保存说明</button>
+                  <span class="form-message" data-description-message role="status" hidden></span>
+                </div>
+              </form>
+            </details>
           </div>
           <div class="share-item__actions">
+            {{ if eq .Status "active" }}
+            <button type="button" class="button button-secondary button-icon" data-share-action="cancel" data-sharing-id="{{ .ID }}" aria-label="取消分享" title="取消分享">
+              <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9 17H7A5 5 0 0 1 7 7"></path>
+                <path d="M15 7h2a5 5 0 0 1 4 8"></path>
+                <path d="M8 12h4M3 3l18 18"></path>
+              </svg>
+            </button>
+            {{ else }}
+            <button type="button" class="button button-secondary button-icon" data-share-action="share" data-sharing-id="{{ .ID }}" aria-label="分享文件" title="分享文件">
+              <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9 17H7A5 5 0 0 1 7 7h2M15 7h2a5 5 0 0 1 0 10h-2"></path>
+                <path d="M8 12h8"></path>
+              </svg>
+            </button>
+            {{ end }}
             {{ if gt .FileCount 1 }}
-            <button type="button" class="button button-ghost button-compact" data-toggle-files="{{ .ID }}" aria-expanded="false" aria-controls="files-{{ .ID }}">
+            <button type="button" class="button button-ghost button-icon" data-toggle-files="{{ .ID }}" aria-expanded="false" aria-controls="files-{{ .ID }}" aria-label="展开文件列表" title="展开文件列表">
               <svg class="disclosure-icon" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="6 9 12 15 18 9"></polyline>
               </svg>
-              <span>展开</span>
             </button>
+            {{ else if eq .FileCount 1 }}
+            <a href="/api/admin/shares/{{ .ID }}/download" class="button button-secondary button-icon" data-admin-download download aria-label="下载 {{ .Title }}" title="下载 {{ .Title }}">
+              <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
+            </a>
             {{ end }}
-            <button type="button" class="button button-secondary button-compact" data-copy-value="{{ .ShareURL }}" title="{{ .ShareURL }}">
+            <button type="button" class="button button-secondary button-icon" data-copy-value="{{ .ShareURL }}" aria-label="复制链接" title="复制链接" {{ if ne .Status "active" }}hidden{{ end }}>
               <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <rect width="14" height="14" x="8" y="8" rx="2"></rect>
                 <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path>
               </svg>
-              复制链接
             </button>
             <button type="button" class="button button-danger button-icon" data-delete-share="{{ .ID }}" aria-label="删除分享" title="删除分享">
               <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -98,6 +133,13 @@
               </svg>
               <span class="mono truncate" title="{{ .FileName }}">{{ .FileName }}</span>
               <span class="share-file-row__size">{{ formatSize .Size }}</span>
+              <a href="/api/admin/shares/{{ .ShareID }}/download?file={{ .ID }}" class="button button-secondary button-icon" data-admin-download download aria-label="下载 {{ .FileName }}" title="下载 {{ .FileName }}">
+                <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+              </a>
             </div>
             {{ end }}
           </div>
@@ -106,8 +148,8 @@
         {{ end }}
           </section>
           <section class="admin-empty-state" data-active-empty {{ if .Shares }}hidden{{ end }}>
-            <h2>还没有分享内容</h2>
-            <p>创建分享后会显示在这里</p>
+            <h2>还没有文件</h2>
+            <p>上传文件后会显示在这里</p>
             <a href="/upload" class="button button-primary button-compact">前往上传</a>
           </section>
         </section>
@@ -134,14 +176,19 @@
                   <span class="share-item__time" data-share-deleted-time>删除：{{ formatDeletedTime .DeletedAt }}</span>
                   <span class="share-item__time">下载 {{ .DownloadCount }} 次</span>
                 </div>
+                {{ if .Description }}
+                <details class="share-description-editor">
+                  <summary>查看说明</summary>
+                  <p class="share-description-text">{{ .Description }}</p>
+                </details>
+                {{ end }}
               </div>
               <div class="share-item__actions">
                 {{ if gt .FileCount 1 }}
-                <button type="button" class="button button-ghost button-compact" data-toggle-files="{{ .ID }}" aria-expanded="false" aria-controls="files-deleted-{{ .ID }}">
+                <button type="button" class="button button-ghost button-icon" data-toggle-files="{{ .ID }}" aria-expanded="false" aria-controls="files-deleted-{{ .ID }}" aria-label="展开文件列表" title="展开文件列表">
                   <svg class="disclosure-icon" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <polyline points="6 9 12 15 18 9"></polyline>
                   </svg>
-                  <span>展开</span>
                 </button>
                 {{ end }}
                 <button type="button" class="button button-danger button-icon" data-purge-share="{{ .ID }}" aria-label="清除记录" title="清除记录">
@@ -176,6 +223,52 @@
           </section>
         </section>
       </div>
+      <dialog class="share-settings-dialog" data-share-settings-dialog aria-labelledby="share-settings-title">
+        <div class="share-settings-heading">
+          <h2 id="share-settings-title">重新分享</h2>
+          <button type="button" class="button button-ghost button-icon" data-share-settings-close aria-label="关闭分享设置" title="关闭">
+            <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 6 12 12M18 6 6 18"></path></svg>
+          </button>
+        </div>
+        <p class="muted" data-share-settings-intro>复用现有文件，生成新的分享链接。</p>
+        <p class="form-message" data-share-settings-message role="status" hidden></p>
+        <form class="stack-lg" data-reshare-form hidden>
+          <label class="field">
+            <span>分享说明（可选）</span>
+            <textarea name="description" rows="4" maxlength="2000" placeholder="例如：文件用途、使用方法或注意事项"></textarea>
+            <small class="muted">支持多行文字，最多 2000 字。</small>
+          </label>
+          <div class="grid-two">
+            <label class="field">
+              <span>提取码</span>
+              <input type="password" name="access_password" autocomplete="off" placeholder="留空则无需提取码">
+            </label>
+            <label class="field">
+              <span>过期时间</span>
+              <select name="expires_hours">
+                <option value="1">1 小时</option><option value="6">6 小时</option><option value="24">24 小时</option><option value="72">3 天</option><option value="168">7 天</option><option value="0">永不过期</option>
+              </select>
+            </label>
+          </div>
+          <div class="share-settings-actions">
+            <button type="button" class="button button-ghost button-compact" data-share-settings-close>取消</button>
+            <button type="submit" class="button button-primary button-compact">生成新分享链接</button>
+          </div>
+        </form>
+        <section class="stack-lg" data-reshare-result hidden>
+          <p>新分享链接已生成，旧链接已失效。</p>
+          <div class="share-link-box">
+            <input id="reshare-url" class="mono" type="text" aria-label="新分享链接" readonly>
+            <button type="button" class="button button-secondary button-icon" data-copy-target="reshare-url" aria-label="复制新分享链接" title="复制新分享链接">
+              <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>
+            </button>
+          </div>
+          <div class="share-settings-actions">
+            <a class="button button-secondary button-compact" data-reshare-visit target="_blank" rel="noreferrer">打开分享页</a>
+            <button type="button" class="button button-primary button-compact" data-share-settings-close>完成</button>
+          </div>
+        </section>
+      </dialog>
     </main>
   </div>
 
@@ -201,6 +294,6 @@
     </section>
   </div>
 
-  <script src="/static/app.js?v=20260906-01"></script>
+  <script src="/static/app.js?v=20261101-14"></script>
 </body>
 </html>

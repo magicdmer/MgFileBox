@@ -42,7 +42,7 @@ func main() {
 		log.Fatalf("build server: %v", err)
 	}
 
-	runCleanupWorker(svc, cfg.CleanupInterval)
+	runSessionCleanupWorker(svc, cfg.CleanupInterval)
 
 	httpServer := &http.Server{
 		Addr:              ":" + cfg.Port,
@@ -60,14 +60,17 @@ func main() {
 	waitForShutdown(httpServer)
 }
 
-func runCleanupWorker(svc *service.Service, interval time.Duration) {
+func runSessionCleanupWorker(svc *service.Service, interval time.Duration) {
+	if interval <= 0 {
+		return
+	}
 	go func() {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 
 		for range ticker.C {
-			if err := svc.CleanupExpired(context.Background()); err != nil {
-				log.Printf("cleanup failed: %v", err)
+			if err := svc.CleanupExpiredSessions(context.Background()); err != nil {
+				log.Printf("session cleanup failed: %v", err)
 			}
 		}
 	}()

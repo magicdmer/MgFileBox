@@ -52,6 +52,9 @@ func Load() (*Config, error) {
 	sessionTTLHours := getEnvAsInt("SESSION_TTL_HOURS", 24)
 	cleanupMinutes := getEnvAsInt("CLEANUP_INTERVAL_MINUTES", 30)
 	maxUploadSizeMB := getEnvAsInt("MAX_UPLOAD_SIZE_MB", 512)
+	if maxUploadSizeMB <= 0 || int64(maxUploadSizeMB) > (1<<63-1-(1<<20))/(1<<20) {
+		return nil, fmt.Errorf("MAX_UPLOAD_SIZE_MB 必须为有效的正整数")
+	}
 
 	cfg := &Config{
 		Port:              getEnv("PORT", "8080"),

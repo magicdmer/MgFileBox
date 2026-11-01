@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=20260711-21">
+  <link rel="stylesheet" href="/static/app.css?v=20261101-13">
 </head>
 <body class="{{ if .Locked }}auth-shell{{ end }}">
   {{ if .Locked }}
@@ -24,7 +24,7 @@
       </div>
       <p class="auth-subtitle muted">请输入提取码继续访问</p>
 
-      <form class="auth-form stack-lg" method="post" action="/s/{{ .Share.ID }}/unlock">
+      <form class="auth-form stack-lg" method="post" action="/s/{{ .Share.LinkID }}/unlock">
         <div class="field">
           <label class="sr-only" for="share-code">提取码</label>
           <input id="share-code" class="input-large" type="password" name="password" placeholder="提取码" autocomplete="current-password" required>
@@ -54,6 +54,11 @@
         <h2>这条分享已被删除</h2>
         <p class="muted">文件已不可访问</p>
       </section>
+      {{ else if and .Share .Share.Cancelled }}
+      <section class="share-status">
+        <h2>这条分享已被取消</h2>
+        <p class="muted">链接已失效，请联系分享者获取新链接</p>
+      </section>
       {{ else if .Expired }}
       <section class="share-status">
         <h2>这条分享已过期</h2>
@@ -69,6 +74,13 @@
           <span class="share-meta-line__count">下载 {{ .DownloadCount }} 次</span>
         </div>
 
+        {{ if .Share.Description }}
+        <section class="share-description" aria-labelledby="share-description-title">
+          <h2 id="share-description-title">分享说明</h2>
+          <p>{{ .Share.Description }}</p>
+        </section>
+        {{ end }}
+
         <section class="share-files-section">
           <div class="download-list">
             {{ range .Share.Files }}
@@ -77,7 +89,7 @@
                 <strong class="mono truncate">{{ .FileName }}</strong>
                 <span>{{ formatSize .Size }}</span>
               </div>
-              <a href="/s/{{ $.Share.ID }}/download?file={{ .ID }}" data-download-count="/s/{{ $.Share.ID }}/download-click?file={{ .ID }}" class="button button-primary button-compact">下载</a>
+              <a href="/s/{{ $.Share.LinkID }}/download?file={{ .ID }}" data-download-count="/s/{{ $.Share.LinkID }}/download-click?file={{ .ID }}" class="button button-primary button-compact">下载</a>
             </div>
             {{ end }}
           </div>
@@ -93,6 +105,6 @@
   </main>
   {{ end }}
 
-  <script src="/static/app.js?v=20260712-01"></script>
+  <script src="/static/app.js?v=20261101-14"></script>
 </body>
 </html>

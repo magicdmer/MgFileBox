@@ -185,6 +185,35 @@ button {
   border-top: 1px solid var(--border);
 }
 
+.share-description {
+  margin-bottom: 24px;
+  padding: 18px 20px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.share-description h2 {
+  margin: 0 0 10px;
+  font-size: 0.92rem;
+}
+
+.share-description p {
+  margin: 0;
+  line-height: 1.8;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.description-field {
+  margin-bottom: 24px;
+}
+
+.field.description-field textarea {
+  min-height: 112px;
+  line-height: 1.6;
+}
+
 .share-status {
   text-align: center;
 }
@@ -608,6 +637,77 @@ h2 {
 .upload-dropzone.is-dragover {
   border-color: var(--accent-strong);
   background: rgba(94, 75, 138, 0.08);
+}
+
+.upload-size-limit {
+  display: block;
+  margin-top: 8px;
+  color: var(--text-soft);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.app-toast {
+  position: fixed;
+  top: max(24px, env(safe-area-inset-top));
+  left: 50%;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: max-content;
+  max-width: min(520px, calc(100% - 32px));
+  padding: 12px 14px;
+  transform: translateX(-50%);
+  color: var(--text);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  box-shadow: 0 12px 36px rgba(45, 35, 66, 0.12);
+}
+
+.app-toast__icon {
+  display: flex;
+  flex-shrink: 0;
+  color: var(--accent);
+}
+
+.app-toast.is-error .app-toast__icon {
+  color: var(--danger);
+}
+
+.app-toast__message {
+  min-width: 0;
+  font-size: 0.88rem;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.app-toast__close {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  color: var(--text-soft);
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.app-toast__close:hover,
+.app-toast__close:focus-visible {
+  color: var(--accent-strong);
+  background: var(--bg);
+}
+
+@media (max-width: 640px) {
+  .app-toast__close {
+    width: 44px;
+    height: 44px;
+  }
 }
 
 .selected-files {
@@ -1244,6 +1344,44 @@ h2 {
   min-width: 0;
 }
 
+.share-description-editor {
+  min-width: 0;
+}
+
+.share-description-editor summary {
+  width: fit-content;
+  color: var(--accent);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.share-description-editor form,
+.share-description-text {
+  margin-top: 14px;
+}
+
+.share-description-editor textarea {
+  min-height: 112px;
+  line-height: 1.6;
+}
+
+.description-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.description-editor-actions .form-message {
+  margin: 0;
+}
+
+.share-description-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.8;
+}
+
 .share-item__heading,
 .share-item__badges,
 .share-item__meta {
@@ -1442,6 +1580,53 @@ h2 {
   box-shadow: 0 24px 70px rgba(45, 35, 66, 0.18), 0 8px 24px rgba(45, 35, 66, 0.08);
 }
 
+.share-settings-dialog {
+  width: min(520px, calc(100% - 32px));
+  max-height: calc(100dvh - 40px);
+  margin: auto;
+  padding: 24px;
+  overflow-y: auto;
+  color: var(--text);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  box-shadow: var(--shadow);
+}
+
+.share-settings-dialog::backdrop {
+  background: rgba(28, 24, 37, 0.24);
+  backdrop-filter: blur(8px);
+}
+
+.share-settings-heading,
+.share-settings-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.share-settings-heading h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.share-settings-actions {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.share-settings-dialog textarea {
+  min-height: 112px;
+  line-height: 1.6;
+}
+
+.badge-cancelled {
+  color: var(--text-soft);
+  background: var(--bg-subtle);
+  border-color: var(--border-strong);
+}
+
 .confirm-dialog__icon {
   width: 42px;
   height: 42px;
@@ -1551,6 +1736,10 @@ h2 {
   .share-item {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .share-item__main {
+    width: 100%;
   }
 
   .share-item__meta {

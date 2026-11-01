@@ -11,12 +11,25 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"mgfilebox/internal/config"
 	"mgfilebox/internal/models"
 	"mgfilebox/internal/repository"
 	"mgfilebox/internal/security"
 )
+
+var ErrDescriptionTooLong = errors.New("说明文字不能超过 2000 字")
+var ErrShareActive = errors.New("分享仍有效，请先取消分享")
+var ErrUploadTooLarge = errors.New("上传文件总大小超过限制")
+
+type FileDeletionError struct {
+	Failures []string
+}
+
+func (e *FileDeletionError) Error() string {
+	return "以下文件删除失败：" + strings.Join(e.Failures, "；") + "。请确认文件未被占用且具有删除权限后重试，部分文件可能已删除。"
+}
 
 type Service struct {
 	repo *repository.Repository
@@ -81,6 +94,18 @@ func (s *Service) CreateFileShare(ctx context.Context, input models.ShareInput, 
 	if len(fileHeaders) == 0 {
 		return nil, errors.New("请选择文件")
 	}
+	if s.cfg.MaxUploadSize > 0 {
+		var totalSize int64
+		for _, file := range fileHeaders {
+			if file == nil {
+				continue
+			}
+			if file.Size > s.cfg.MaxUploadSize-totalSize {
+				return nil, ErrUploadTooLarge
+			}
+			totalSize += file.Size
+		}
+	}
 
 	shareID, err := generateShareID()
 	if err != nil {
@@ -99,15 +124,13 @@ func (s *Service) CreateFileShare(ctx context.Context, input models.ShareInput, 
 		}
 		fileID, err := security.RandomToken(8)
 		if err != nil {
-			removeFiles(createdPaths)
-			return nil, err
+			return nil, errors.Join(err, removeFiles(createdPaths))
 		}
 		fileID = strings.ToLower(strings.TrimRight(fileID, "="))
 		storageName := shareID + "-" + fileID + filepath.Ext(fileHeader.Filename)
 		storagePath := filepath.Join(s.cfg.UploadDir, storageName)
 		if err := saveUploadedFile(fileHeader, storagePath); err != nil {
-			removeFiles(createdPaths)
-			return nil, err
+			return nil, errors.Join(err, removeFiles(createdPaths))
 		}
 		createdPaths = append(createdPaths, storagePath)
 		share.Files = append(share.Files, models.ShareFile{
@@ -135,8 +158,7 @@ func (s *Service) CreateFileShare(ctx context.Context, input models.ShareInput, 
 	}
 
 	if err := s.repo.CreateShare(ctx, share); err != nil {
-		removeFiles(createdPaths)
-		return nil, err
+		return nil, errors.Join(err, removeFiles(createdPaths))
 	}
 
 	return s.toSummary(share), nil
@@ -174,6 +196,80 @@ func (s *Service) GetShare(ctx context.Context, id string) (*models.Share, error
 	return share, nil
 }
 
+func (s *Service) GetPublicShare(ctx context.Context, publicID string) (*models.Share, error) {
+	return s.repo.GetShareByPublicID(ctx, publicID)
+}
+
+func (s *Service) CancelShare(ctx context.Context, id string) error {
+	return s.repo.CancelShare(ctx, id)
+}
+
+func (s *Service) GetShareSettings(ctx context.Context, id string) (models.ShareInput, error) {
+	share, err := s.repo.GetShareByID(ctx, id)
+	if err != nil {
+		return models.ShareInput{}, err
+	}
+	if share.IsDeleted() {
+		return models.ShareInput{}, repository.ErrNotFound
+	}
+	password := ""
+	if share.PickcodeEncrypted != "" {
+		password, err = security.DecryptValue(s.cfg.CookieSecret, share.PickcodeEncrypted)
+		if err != nil {
+			return models.ShareInput{}, errors.New("无法读取原提取码，请检查 COOKIE_SECRET 配置")
+		}
+	}
+	hours := share.ExpiresHours
+	if share.NeverExpires() {
+		hours = 0
+	} else if hours <= 0 {
+		hours = 24
+	}
+	return models.ShareInput{Title: share.Title, Description: share.Description, AccessPassword: password, ExpiresHours: hours}, nil
+}
+
+func (s *Service) Reshare(ctx context.Context, id string, input models.ShareInput) (*models.ShareSummary, error) {
+	current, err := s.repo.GetShareByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if current.IsDeleted() {
+		return nil, repository.ErrNotFound
+	}
+	if current.Status(s.now()) == "active" {
+		return nil, ErrShareActive
+	}
+	if len(current.Files) == 0 {
+		return nil, errors.New("分享中没有文件")
+	}
+	for _, file := range current.Files {
+		info, err := os.Stat(file.StoragePath)
+		if err != nil || !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("文件 %s 不存在或不是普通文件，无法重新分享", file.FileName)
+		}
+	}
+	publicID, err := generateShareID()
+	if err != nil {
+		return nil, err
+	}
+	settings, err := s.buildShare(input, id)
+	if err != nil {
+		return nil, err
+	}
+	settings.PublicID = publicID
+	if err := s.repo.Reshare(ctx, id, current.LinkID(), settings); err != nil {
+		return nil, err
+	}
+	current.PublicID = publicID
+	current.Cancelled = false
+	current.Description = settings.Description
+	current.AccessPasswordHash = settings.AccessPasswordHash
+	current.PickcodeEncrypted = settings.PickcodeEncrypted
+	current.ExpiresAt = settings.ExpiresAt
+	current.ExpiresHours = settings.ExpiresHours
+	return s.toSummary(*current), nil
+}
+
 func (s *Service) GetShareFile(ctx context.Context, shareID, fileID string) (*models.ShareFile, error) {
 	return s.repo.GetShareFile(ctx, shareID, fileID)
 }
@@ -188,20 +284,42 @@ func (s *Service) DeleteShare(ctx context.Context, id string) error {
 		return err
 	}
 
-	if err := s.repo.SoftDeleteShare(ctx, id, s.now()); err != nil {
+	if share.IsDeleted() {
+		return repository.ErrNotFound
+	}
+	if err := removeShareFiles(share.Files); err != nil {
 		return err
 	}
-
-	removeShareFiles(share.Files)
-	return nil
+	return s.repo.SoftDeleteShare(ctx, id, s.now())
 }
 
 func (s *Service) PurgeDeletedShare(ctx context.Context, id string) error {
+	share, err := s.repo.GetShareByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if !share.IsDeleted() {
+		return repository.ErrNotFound
+	}
+	if err := removeShareFiles(share.Files); err != nil {
+		return err
+	}
 	return s.repo.PurgeDeletedShare(ctx, id)
 }
 
+func (s *Service) UpdateShareDescription(ctx context.Context, id, description string) (string, error) {
+	description, err := normalizeDescription(description)
+	if err != nil {
+		return "", err
+	}
+	if err := s.repo.UpdateShareDescription(ctx, id, description); err != nil {
+		return "", err
+	}
+	return description, nil
+}
+
 func (s *Service) CanAccessShare(share *models.Share, signedUnlock string) bool {
-	if share == nil || share.IsDeleted() || share.IsExpired(s.now()) {
+	if share == nil || share.IsDeleted() || share.Cancelled || share.IsExpired(s.now()) {
 		return false
 	}
 	if !share.HasPassword() {
@@ -216,7 +334,7 @@ func (s *Service) CanAccessShare(share *models.Share, signedUnlock string) bool 
 		return false
 	}
 
-	expected := share.ID + ":" + security.SHA256Hex(share.AccessPasswordHash)
+	expected := share.LinkID() + ":" + security.SHA256Hex(share.AccessPasswordHash)
 	return value == expected
 }
 
@@ -230,25 +348,12 @@ func (s *Service) VerifySharePassword(share *models.Share, password string) (str
 	if err := security.CheckPassword(share.AccessPasswordHash, password); err != nil {
 		return "", errors.New("提取码错误")
 	}
-	value := share.ID + ":" + security.SHA256Hex(share.AccessPasswordHash)
+	value := share.LinkID() + ":" + security.SHA256Hex(share.AccessPasswordHash)
 	return security.SignValue(s.cfg.CookieSecret, value), nil
 }
 
-func (s *Service) CleanupExpired(ctx context.Context) error {
-	now := s.now()
-	expiredShares, err := s.repo.ListExpiredFileShares(ctx, now)
-	if err != nil {
-		return err
-	}
-
-	for _, share := range expiredShares {
-		if err := s.repo.SoftDeleteShare(ctx, share.ID, now); err != nil && !errors.Is(err, repository.ErrNotFound) {
-			return err
-		}
-		removeShareFiles(share.Files)
-	}
-
-	return s.repo.DeleteExpiredSessions(ctx, now)
+func (s *Service) CleanupExpiredSessions(ctx context.Context) error {
+	return s.repo.DeleteExpiredSessions(ctx, s.now())
 }
 
 func (s *Service) RecordAccess(ctx context.Context, shareID, action, ip, userAgent string, statusCode int) {
@@ -268,7 +373,20 @@ func (s *Service) RecordAccess(ctx context.Context, shareID, action, ip, userAge
 	})
 }
 
+func normalizeDescription(description string) (string, error) {
+	description = strings.TrimSpace(description)
+	if utf8.RuneCountInString(description) > 2000 {
+		return "", ErrDescriptionTooLong
+	}
+	return description, nil
+}
+
 func (s *Service) buildShare(input models.ShareInput, shareID string) (models.Share, error) {
+	description, err := normalizeDescription(input.Description)
+	if err != nil {
+		return models.Share{}, err
+	}
+
 	expiresHours := input.ExpiresHours
 	if expiresHours < 0 {
 		return models.Share{}, errors.New("请选择过期时间")
@@ -280,10 +398,13 @@ func (s *Service) buildShare(input models.ShareInput, shareID string) (models.Sh
 	}
 
 	share := models.Share{
-		ID:        shareID,
-		Title:     strings.TrimSpace(input.Title),
-		ExpiresAt: expiresAt,
-		CreatedAt: s.now(),
+		ID:           shareID,
+		PublicID:     shareID,
+		ExpiresHours: expiresHours,
+		Title:        strings.TrimSpace(input.Title),
+		Description:  description,
+		ExpiresAt:    expiresAt,
+		CreatedAt:    s.now(),
 	}
 
 	if password := strings.TrimSpace(input.AccessPassword); password != "" {
@@ -307,7 +428,7 @@ func (s *Service) toSummary(share models.Share) *models.ShareSummary {
 	for _, file := range share.Files {
 		totalSize += file.Size
 	}
-	shareURL := strings.TrimRight(s.cfg.BaseURL, "/") + "/s/" + share.ID
+	shareURL := strings.TrimRight(s.cfg.BaseURL, "/") + "/s/" + share.LinkID()
 	if share.PickcodeEncrypted != "" {
 		if pickcode, err := security.DecryptValue(s.cfg.CookieSecret, share.PickcodeEncrypted); err == nil && pickcode != "" {
 			shareURL += "?pickcode=" + url.QueryEscape(pickcode)
@@ -316,6 +437,7 @@ func (s *Service) toSummary(share models.Share) *models.ShareSummary {
 	return &models.ShareSummary{
 		ID:          share.ID,
 		Title:       share.Title,
+		Description: share.Description,
 		FileName:    share.FileName,
 		HasPassword: share.HasPassword(),
 		ExpiresAt:   share.ExpiresAt,
@@ -359,27 +481,50 @@ func saveUploadedFile(fileHeader *multipart.FileHeader, storagePath string) erro
 		return err
 	}
 	defer source.Close()
+	return writeUploadedFile(source, storagePath)
+}
 
+func writeUploadedFile(source io.Reader, storagePath string) (err error) {
 	target, err := os.Create(storagePath)
 	if err != nil {
 		return err
 	}
-	defer target.Close()
+	defer func() {
+		err = errors.Join(err, target.Close())
+		if err != nil {
+			err = errors.Join(err, removeFiles([]string{storagePath}))
+		}
+	}()
 
 	_, err = io.Copy(target, source)
 	return err
 }
 
-func removeFiles(paths []string) {
+func removeFiles(paths []string) error {
+	var failures []error
 	for _, path := range paths {
-		_ = os.Remove(path)
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			failures = append(failures, fmt.Errorf("清理上传残留文件失败：%w", err))
+		}
 	}
+	return errors.Join(failures...)
 }
 
-func removeShareFiles(files []models.ShareFile) {
+func removeShareFiles(files []models.ShareFile) error {
+	var failures []string
 	for _, file := range files {
-		_ = os.Remove(file.StoragePath)
+		if err := os.Remove(file.StoragePath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			var pathError *os.PathError
+			if errors.As(err, &pathError) {
+				err = pathError.Err
+			}
+			failures = append(failures, fmt.Sprintf("%s：%v", file.FileName, err))
+		}
 	}
+	if len(failures) > 0 {
+		return &FileDeletionError{Failures: failures}
+	}
+	return nil
 }
 
 func generateShareID() (string, error) {

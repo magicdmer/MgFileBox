@@ -83,7 +83,7 @@ func TestSharePasswordFlow(t *testing.T) {
 	}
 }
 
-func TestCleanupExpiredRemovesFile(t *testing.T) {
+func TestSessionCleanupKeepsExpiredFileUntilAdminDeletes(t *testing.T) {
 	svc, cleanup := newTestService(t)
 	defer cleanup()
 
@@ -110,7 +110,7 @@ func TestCleanupExpiredRemovesFile(t *testing.T) {
 	}
 
 	svc.now = func() time.Time { return time.Now() }
-	if err := svc.CleanupExpired(context.Background()); err != nil {
+	if err := svc.CleanupExpiredSessions(context.Background()); err != nil {
 		t.Fatalf("cleanup failed: %v", err)
 	}
 
@@ -118,12 +118,24 @@ func TestCleanupExpiredRemovesFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get updated share failed: %v", err)
 	}
-	if updated.DeletedAt == nil {
-		t.Fatalf("expected share to be soft deleted")
+	if updated.DeletedAt != nil || !updated.IsExpired(svc.now()) {
+		t.Fatalf("expected share to remain expired without being deleted")
 	}
-
+	if svc.CanAccessShare(updated, "") {
+		t.Fatal("expired share must remain inaccessible")
+	}
+	if content, err := os.ReadFile(filePath); err != nil || string(content) != "temp" {
+		t.Fatalf("expected expired file contents to remain intact, got %q, err=%v", content, err)
+	}
+	shares, err := svc.ListShares(context.Background())
+	if err != nil || len(shares) != 1 || shares[0].Status != "expired" {
+		t.Fatalf("expected expired share in management list, got %v, err=%v", shares, err)
+	}
+	if err := svc.DeleteShare(context.Background(), share.ID); err != nil {
+		t.Fatalf("admin delete failed: %v", err)
+	}
 	if _, err := os.Stat(filePath); !os.IsNotExist(err) {
-		t.Fatalf("expected file to be removed, got err=%v", err)
+		t.Fatalf("expected admin delete to remove file, got err=%v", err)
 	}
 }
 
@@ -309,7 +321,32 @@ func TestCountSuccessfulDownloads(t *testing.T) {
 	}
 }
 
-func TestCleanupExpiredKeepsNeverExpiresShare(t *testing.T) {
+func TestSessionCleanupRemovesOnlyExpiredSessions(t *testing.T) {
+	svc, cleanup := newTestService(t)
+	defer cleanup()
+	ctx := context.Background()
+	now := time.Now()
+	svc.now = func() time.Time { return now }
+	for _, session := range []models.AdminSession{
+		{ID: "expired-session", TokenHash: "expired-hash", CreatedAt: now.Add(-2 * time.Hour), ExpiresAt: now.Add(-time.Hour)},
+		{ID: "active-session", TokenHash: "active-hash", CreatedAt: now, ExpiresAt: now.Add(time.Hour)},
+	} {
+		if err := svc.repo.CreateAdminSession(ctx, session); err != nil {
+			t.Fatalf("create session: %v", err)
+		}
+	}
+	if err := svc.CleanupExpiredSessions(ctx); err != nil {
+		t.Fatalf("cleanup sessions: %v", err)
+	}
+	if _, err := svc.repo.GetAdminSessionByTokenHash(ctx, "expired-hash"); err != repository.ErrNotFound {
+		t.Fatalf("expected expired session to be removed, got %v", err)
+	}
+	if _, err := svc.repo.GetAdminSessionByTokenHash(ctx, "active-hash"); err != nil {
+		t.Fatalf("active session should remain: %v", err)
+	}
+}
+
+func TestSessionCleanupKeepsNeverExpiresShare(t *testing.T) {
 	svc, cleanup := newTestService(t)
 	defer cleanup()
 
@@ -332,7 +369,7 @@ func TestCleanupExpiredKeepsNeverExpiresShare(t *testing.T) {
 		t.Fatalf("create never-expiring share failed: %v", err)
 	}
 
-	if err := svc.CleanupExpired(context.Background()); err != nil {
+	if err := svc.CleanupExpiredSessions(context.Background()); err != nil {
 		t.Fatalf("cleanup failed: %v", err)
 	}
 

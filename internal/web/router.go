@@ -43,6 +43,7 @@ type viewData struct {
 	Shares        []models.ShareSummary
 	DeletedShares []models.ShareSummary
 	DownloadCount int64
+	MaxUploadSize int64
 }
 
 type loginAttempt struct {
@@ -66,7 +67,7 @@ func NewServer(cfg *config.Config, svc *service.Service, version string) (*Serve
 
 	engine := gin.New()
 	engine.Use(gin.Logger(), gin.Recovery())
-	engine.MaxMultipartMemory = cfg.MaxUploadSize
+	engine.MaxMultipartMemory = 32 << 20
 
 	tmpl, err := template.New("").Funcs(template.FuncMap{
 		"formatTime": func(value time.Time) string {
@@ -79,6 +80,9 @@ func NewServer(cfg *config.Config, svc *service.Service, version string) (*Serve
 			return value.Local().Format("2006-01-02 15:04")
 		},
 		"formatSize": formatFileSize,
+		"formatUploadLimit": func(value int64) string {
+			return strings.NewReplacer(".0 KB", " K", ".0 MB", " M", ".0 GB", " G", " KB", " K", " MB", " M", " GB", " G").Replace(formatFileSize(value))
+		},
 		"formatDeletedTime": func(value *time.Time) string {
 			if value == nil {
 				return "-"
@@ -180,8 +184,13 @@ func (s *Server) registerRoutes() {
 	admin.GET("/about", s.handleAboutPage)
 	admin.GET("/logout", s.handleLogout)
 	admin.GET("/admin/shares", s.handleAdminPage)
+	admin.GET("/api/admin/shares/:id/download", s.handleAdminDownload)
 	admin.POST("/api/shares/file", s.handleCreateFileShare)
 	admin.POST("/api/admin/shares/:id/delete", s.handleDeleteShare)
+	admin.POST("/api/admin/shares/:id/description", s.handleUpdateShareDescription)
+	admin.GET("/api/admin/shares/:id/settings", s.handleShareSettings)
+	admin.POST("/api/admin/shares/:id/cancel", s.handleCancelShare)
+	admin.POST("/api/admin/shares/:id/reshare", s.handleReshare)
 	admin.POST("/api/admin/shares/:id/purge", s.handlePurgeDeletedShare)
 }
 
@@ -213,9 +222,10 @@ func (s *Server) handleLoginPage(c *gin.Context) {
 
 func (s *Server) handleUploadPage(c *gin.Context) {
 	c.HTML(http.StatusOK, "upload.html", viewData{
-		Title:     "上传分享",
-		ActiveNav: "upload",
-		Now:       time.Now(),
+		Title:         "上传分享",
+		ActiveNav:     "upload",
+		Now:           time.Now(),
+		MaxUploadSize: s.cfg.MaxUploadSize,
 	})
 }
 
@@ -250,9 +260,9 @@ func (s *Server) handleAdminPage(c *gin.Context) {
 }
 
 func (s *Server) handleSharePage(c *gin.Context) {
-	share, err := s.svc.GetShare(c.Request.Context(), c.Param("id"))
+	share, err := s.svc.GetPublicShare(c.Request.Context(), c.Param("id"))
 	if err != nil {
-		s.renderShareStatus(c, nil, false, false, true)
+		s.renderShareStatus(c, nil, false, false, false)
 		return
 	}
 
@@ -260,7 +270,7 @@ func (s *Server) handleSharePage(c *gin.Context) {
 		s.renderShareStatus(c, share, false, false, true)
 		return
 	}
-	if share.IsExpired(time.Now()) {
+	if share.Cancelled || share.IsExpired(time.Now()) {
 		s.renderShareStatus(c, share, false, true, false)
 		return
 	}
@@ -269,8 +279,8 @@ func (s *Server) handleSharePage(c *gin.Context) {
 	if pickcode := strings.TrimSpace(c.Query("pickcode")); pickcode != "" && share.HasPassword() {
 		value, verifyErr := s.svc.VerifySharePassword(share, pickcode)
 		if verifyErr == nil {
-			c.SetCookie(unlockCookieName(share.ID), value, unlockCookieMaxAge(share.ExpiresAt), "/s/"+share.ID, "", shouldUseSecureCookie(c), true)
-			c.Redirect(http.StatusFound, "/s/"+share.ID)
+			c.SetCookie(unlockCookieName(share.ID), value, unlockCookieMaxAge(share.ExpiresAt), "/s/"+share.LinkID(), "", shouldUseSecureCookie(c), true)
+			c.Redirect(http.StatusFound, "/s/"+share.LinkID())
 			return
 		}
 		pickcodeError = verifyErr.Error()
@@ -298,9 +308,13 @@ func (s *Server) handleSharePage(c *gin.Context) {
 }
 
 func (s *Server) handleUnlockShare(c *gin.Context) {
-	share, err := s.svc.GetShare(c.Request.Context(), c.Param("id"))
+	share, err := s.svc.GetPublicShare(c.Request.Context(), c.Param("id"))
 	if err != nil {
 		c.Redirect(http.StatusFound, "/s/"+c.Param("id"))
+		return
+	}
+	if share.IsDeleted() || share.Cancelled || share.IsExpired(time.Now()) {
+		c.Redirect(http.StatusFound, "/s/"+share.LinkID())
 		return
 	}
 
@@ -316,17 +330,17 @@ func (s *Server) handleUnlockShare(c *gin.Context) {
 		return
 	}
 
-	c.SetCookie(unlockCookieName(share.ID), value, unlockCookieMaxAge(share.ExpiresAt), "/s/"+share.ID, "", shouldUseSecureCookie(c), true)
-	c.Redirect(http.StatusFound, "/s/"+share.ID)
+	c.SetCookie(unlockCookieName(share.ID), value, unlockCookieMaxAge(share.ExpiresAt), "/s/"+share.LinkID(), "", shouldUseSecureCookie(c), true)
+	c.Redirect(http.StatusFound, "/s/"+share.LinkID())
 }
 
 func (s *Server) handleDownload(c *gin.Context) {
-	share, err := s.svc.GetShare(c.Request.Context(), c.Param("id"))
+	share, err := s.svc.GetPublicShare(c.Request.Context(), c.Param("id"))
 	if err != nil {
 		c.String(http.StatusNotFound, "文件不存在")
 		return
 	}
-	if share.IsDeleted() || share.IsExpired(time.Now()) {
+	if share.IsDeleted() || share.Cancelled || share.IsExpired(time.Now()) {
 		c.String(http.StatusGone, "分享已失效")
 		return
 	}
@@ -337,13 +351,31 @@ func (s *Server) handleDownload(c *gin.Context) {
 		return
 	}
 
+	s.serveShareFile(c, share)
+}
+
+func (s *Server) handleAdminDownload(c *gin.Context) {
+	share, err := s.svc.GetShare(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		c.String(http.StatusNotFound, "文件不存在")
+		return
+	}
+	if share.IsDeleted() {
+		c.String(http.StatusGone, "分享已删除")
+		return
+	}
+	s.serveShareFile(c, share)
+}
+
+func (s *Server) serveShareFile(c *gin.Context, share *models.Share) {
 	var target *models.ShareFile
 	if fileID := c.Query("file"); fileID != "" {
-		target, err = s.svc.GetShareFile(c.Request.Context(), share.ID, fileID)
+		file, err := s.svc.GetShareFile(c.Request.Context(), share.ID, fileID)
 		if err != nil {
 			c.String(http.StatusNotFound, "文件不存在")
 			return
 		}
+		target = file
 	} else if len(share.Files) > 0 {
 		target = &share.Files[0]
 	}
@@ -356,12 +388,12 @@ func (s *Server) handleDownload(c *gin.Context) {
 }
 
 func (s *Server) handleDownloadClick(c *gin.Context) {
-	share, err := s.svc.GetShare(c.Request.Context(), c.Param("id"))
+	share, err := s.svc.GetPublicShare(c.Request.Context(), c.Param("id"))
 	if err != nil {
 		c.Status(http.StatusNotFound)
 		return
 	}
-	if share.IsDeleted() || share.IsExpired(time.Now()) {
+	if share.IsDeleted() || share.Cancelled || share.IsExpired(time.Now()) {
 		c.Status(http.StatusGone)
 		return
 	}
@@ -412,11 +444,25 @@ func (s *Server) handleLogout(c *gin.Context) {
 }
 
 func (s *Server) handleCreateFileShare(c *gin.Context) {
+	if s.cfg.MaxUploadSize > 0 {
+		if c.Request.ContentLength > s.cfg.MaxUploadSize+(1<<20) {
+			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"success": false, "message": "上传内容过大，文件总大小上限为 " + formatFileSize(s.cfg.MaxUploadSize)})
+			return
+		}
+		// Bound multipart overhead as well as file contents, including chunked requests.
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, s.cfg.MaxUploadSize+(1<<20))
+	}
 	form, err := c.MultipartForm()
 	if err != nil {
+		var sizeError *http.MaxBytesError
+		if errors.As(err, &sizeError) {
+			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"success": false, "message": "上传内容过大，文件总大小上限为 " + formatFileSize(s.cfg.MaxUploadSize)})
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "请选择文件"})
 		return
 	}
+	defer form.RemoveAll()
 	fileHeaders := form.File["files"]
 	if len(fileHeaders) == 0 {
 		fileHeaders = form.File["file"]
@@ -429,6 +475,10 @@ func (s *Server) handleCreateFileShare(c *gin.Context) {
 
 	summary, err := s.svc.CreateFileShare(c.Request.Context(), input, fileHeaders)
 	if err != nil {
+		if errors.Is(err, service.ErrUploadTooLarge) {
+			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"success": false, "message": "文件总大小不能超过 " + formatFileSize(s.cfg.MaxUploadSize)})
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
 		return
 	}
@@ -436,13 +486,89 @@ func (s *Server) handleCreateFileShare(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": summary})
 }
 
-func (s *Server) handleDeleteShare(c *gin.Context) {
-	if err := s.svc.DeleteShare(c.Request.Context(), c.Param("id")); err != nil {
+func (s *Server) handleUpdateShareDescription(c *gin.Context) {
+	description, err := s.svc.UpdateShareDescription(c.Request.Context(), c.Param("id"), c.PostForm("description"))
+	if err != nil {
+		status := http.StatusBadRequest
+		message := "保存说明失败"
+		if errors.Is(err, repository.ErrNotFound) {
+			status = http.StatusNotFound
+			message = "分享不存在或已删除"
+		} else if errors.Is(err, service.ErrDescriptionTooLong) {
+			message = err.Error()
+		} else {
+			status = http.StatusInternalServerError
+		}
+		c.JSON(status, gin.H{"success": false, "message": message})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "description": description})
+}
+
+func (s *Server) handleShareSettings(c *gin.Context) {
+	settings, err := s.svc.GetShareSettings(c.Request.Context(), c.Param("id"))
+	if err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, repository.ErrNotFound) {
 			status = http.StatusNotFound
 		}
-		c.JSON(status, gin.H{"success": false, "message": "删除失败"})
+		c.JSON(status, gin.H{"success": false, "message": "无法读取分享设置，请检查分享状态和 COOKIE_SECRET 配置"})
+		return
+	}
+	c.Header("Cache-Control", "no-store")
+	c.JSON(http.StatusOK, gin.H{"success": true, "description": settings.Description, "accessPassword": settings.AccessPassword, "expiresHours": settings.ExpiresHours})
+}
+
+func (s *Server) handleCancelShare(c *gin.Context) {
+	if err := s.svc.CancelShare(c.Request.Context(), c.Param("id")); err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, repository.ErrNotFound) {
+			status = http.StatusNotFound
+		}
+		c.JSON(status, gin.H{"success": false, "message": "取消分享失败，请刷新后重试"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+func (s *Server) handleReshare(c *gin.Context) {
+	input, err := parseCommonInput(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	switch input.ExpiresHours {
+	case 0, 1, 6, 24, 72, 168:
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "请选择有效的过期时间"})
+		return
+	}
+	summary, err := s.svc.Reshare(c.Request.Context(), c.Param("id"), input)
+	if err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, repository.ErrNotFound) {
+			status = http.StatusNotFound
+		} else if errors.Is(err, service.ErrShareActive) {
+			status = http.StatusConflict
+		}
+		c.JSON(status, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": summary})
+}
+
+func (s *Server) handleDeleteShare(c *gin.Context) {
+	if err := s.svc.DeleteShare(c.Request.Context(), c.Param("id")); err != nil {
+		status := http.StatusInternalServerError
+		message := "删除失败，请重试"
+		var deletionError *service.FileDeletionError
+		if errors.Is(err, repository.ErrNotFound) {
+			status = http.StatusNotFound
+		} else if errors.As(err, &deletionError) {
+			status = http.StatusConflict
+			message = deletionError.Error()
+		}
+		c.JSON(status, gin.H{"success": false, "message": message})
 		return
 	}
 
@@ -452,10 +578,15 @@ func (s *Server) handleDeleteShare(c *gin.Context) {
 func (s *Server) handlePurgeDeletedShare(c *gin.Context) {
 	if err := s.svc.PurgeDeletedShare(c.Request.Context(), c.Param("id")); err != nil {
 		status := http.StatusInternalServerError
+		message := "清除记录失败，请重试"
+		var deletionError *service.FileDeletionError
 		if errors.Is(err, repository.ErrNotFound) {
 			status = http.StatusNotFound
+		} else if errors.As(err, &deletionError) {
+			status = http.StatusConflict
+			message = deletionError.Error()
 		}
-		c.JSON(status, gin.H{"success": false, "message": "清除记录失败"})
+		c.JSON(status, gin.H{"success": false, "message": message})
 		return
 	}
 
@@ -485,6 +616,7 @@ func parseCommonInput(c *gin.Context) (models.ShareInput, error) {
 
 	return models.ShareInput{
 		Title:          c.PostForm("title"),
+		Description:    c.PostForm("description"),
 		AccessPassword: c.PostForm("access_password"),
 		ExpiresHours:   expiresHours,
 	}, nil

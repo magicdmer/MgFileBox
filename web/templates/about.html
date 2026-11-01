@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=20260906-01">
+  <link rel="stylesheet" href="/static/app.css?v=20261101-13">
 </head>
 <body>
   <div class="app-shell">
@@ -41,7 +41,7 @@
         <h1>MgFileBox</h1>
         <p class="about-tagline">轻量、私有的文件分享站</p>
         <span class="about-version">版本 {{ if eq .Version "dev" }}开发版{{ else }}{{ .Version }}{{ end }}</span>
-        <p class="about-description">面向个人部署的文件分享工具，提供文件上传、提取码保护、过期清理和分享管理。</p>
+        <p class="about-description">面向个人部署的文件分享工具，提供文件上传、提取码保护、分享有效期和分享管理。文件过期后保留，由管理员手动删除。</p>
         <div class="about-actions">
           <a class="button button-primary button-compact" href="https://github.com/magicdmer/MgFileBox" target="_blank" rel="noreferrer">
             <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="currentColor">
@@ -63,6 +63,6 @@
     </main>
   </div>
 
-  <script src="/static/app.js?v=20260906-01"></script>
+  <script src="/static/app.js?v=20261101-14"></script>
 </body>
 </html>

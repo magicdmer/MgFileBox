@@ -11,6 +11,43 @@
     if (kind === "success") element.classList.add("is-success");
   }
 
+  function showToast(text, kind = "error") {
+    const previous = $("[data-toast]");
+    if (previous) previous.remove();
+    const toast = document.createElement("div");
+    toast.className = `app-toast${kind === "error" ? " is-error" : ""}`;
+    toast.dataset.toast = "";
+    toast.setAttribute("role", kind === "error" ? "alert" : "status");
+    toast.setAttribute("aria-atomic", "true");
+    const icon = document.createElement("span");
+    icon.className = "app-toast__icon";
+    icon.innerHTML = '<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v6M12 17h.01"></path></svg>';
+    const message = document.createElement("span");
+    message.className = "app-toast__message";
+    message.textContent = text;
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "app-toast__close";
+    close.setAttribute("aria-label", "关闭提示");
+    close.title = "关闭提示";
+    close.innerHTML = '<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 6 12 12M18 6 6 18"></path></svg>';
+    toast.append(icon, message, close);
+    let timer;
+    const dismiss = () => { clearTimeout(timer); toast.remove(); };
+    const scheduleDismiss = () => {
+      clearTimeout(timer);
+      if (!toast.contains(document.activeElement)) timer = setTimeout(dismiss, 4500);
+    };
+    close.addEventListener("click", dismiss);
+    toast.addEventListener("pointerenter", () => clearTimeout(timer));
+    toast.addEventListener("pointerleave", scheduleDismiss);
+    toast.addEventListener("focusin", () => clearTimeout(timer));
+    toast.addEventListener("focusout", () => setTimeout(scheduleDismiss, 0));
+    document.body.append(toast);
+    scheduleDismiss();
+    return dismiss;
+  }
+
   function bindLoginForm() {
     const form = $("#login-form");
     if (!form) return;
@@ -40,11 +77,14 @@
     const dropzone = $("#dropzone");
     const fileInput = $("#file-input");
     const fileName = $("#file-name");
+    const sizeLimit = $(".upload-size-limit", dropzone);
     const selectedFilesPanel = $("#selected-files");
     const selectedFilesList = $("#selected-files-list");
     const selectedFilesSummary = $("#selected-files-summary");
     const clearSelectedFiles = $("#clear-selected-files");
     if (!dropzone || !fileInput || !fileName || !selectedFilesPanel || !selectedFilesList || !selectedFilesSummary || !clearSelectedFiles) return;
+    const form = fileInput.closest("form");
+    let dismissSizeToast = null;
 
     let selectedFiles = [];
 
@@ -70,9 +110,11 @@
       const transfer = new DataTransfer();
       selectedFiles.forEach((file) => transfer.items.add(file));
       fileInput.files = transfer.files;
+      if (form && form.validateSelectedFiles) form.validateSelectedFiles();
     };
 
     const updateLabel = () => {
+      if (sizeLimit) sizeLimit.hidden = selectedFiles.length > 0;
       if (selectedFiles.length === 0) {
         fileName.textContent = "点击选择文件，也可以拖拽到这里";
         return;
@@ -176,9 +218,22 @@
       updateLabel();
     });
 
-    const form = fileInput.closest("form");
     if (form) {
       form.updateUploadProgress = updateUploadProgress;
+      form.validateSelectedFiles = () => {
+        const limit = Number(form.dataset.maxUploadSize);
+        const totalSize = Array.from(fileInput.files || []).reduce((sum, file) => sum + file.size, 0);
+        const text = limit > 0 && totalSize > limit
+          ? `上传的文件超过了 ${formatFileSize(limit).replace(/\.0(?=\s)/, "").replace(/\b(K|M|G)B\b/, "$1")} 上限`
+          : "";
+        if (text) {
+          dismissSizeToast = showToast(text);
+        } else if (dismissSizeToast) {
+          dismissSizeToast();
+          dismissSizeToast = null;
+        }
+        return !text;
+      };
       form.addEventListener("reset", () => {
         selectedFiles = [];
         syncInputFiles();
@@ -233,7 +288,6 @@
     const resultCard = $("#upload-result");
     const shareUrlInput = $("#share-url");
     const visitLink = $("#share-visit-link");
-    const message = $("#upload-message");
     const resetButton = $("#reset-share-form");
     const submitButton = $("button[type=\"submit\"]", form);
     const submitLabel = submitButton.textContent;
@@ -295,8 +349,11 @@
         activeRequest.abort();
         return;
       }
+      if (form.validateSelectedFiles && !form.validateSelectedFiles()) {
+        resultCard.hidden = true;
+        return;
+      }
 
-      setMessage(message, "", "");
       setSubmitState("uploading");
 
       try {
@@ -340,7 +397,7 @@
 
         if (!payload.success) {
           if (form.updateUploadProgress) form.updateUploadProgress(0, 1);
-          setMessage(message, payload.message || "创建分享失败", "error");
+          showToast(payload.message || "创建分享失败");
           resultCard.hidden = true;
           return;
         }
@@ -350,16 +407,15 @@
         visitLink.href = shareURL;
         form.hidden = true;
         resultCard.hidden = false;
-        setMessage(message, "", "");
         resultCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
       } catch (error) {
         if (form.updateUploadProgress) form.updateUploadProgress(0, 1);
         if (error && error.name === "AbortError") {
-          setMessage(message, "已取消上传", "");
+          showToast("已取消上传", "info");
         } else if (error && error.name === "NetworkError") {
-          setMessage(message, "网络连接中断，请检查网络后重试", "error");
+          showToast("网络连接中断，请检查网络后重试");
         } else {
-          setMessage(message, "上传中断，请确认文件未被移动、覆盖保存或同步修改，然后重新选择文件再试", "error");
+          showToast("上传中断，请确认文件未被移动、覆盖保存或同步修改，然后重新选择文件再试");
         }
         resultCard.hidden = true;
       } finally {
@@ -374,7 +430,6 @@
       $("#file-name").textContent = "点击选择文件，也可以拖拽到这里";
       form.hidden = false;
       resultCard.hidden = true;
-      setMessage(message, "", "");
     });
   }
 
@@ -383,7 +438,11 @@
       await navigator.clipboard.writeText(text);
       if (!trigger) return;
       const oldHTML = trigger.innerHTML;
-      trigger.textContent = "已复制";
+      if (trigger.classList.contains("button-icon")) {
+        trigger.innerHTML = '<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg>';
+      } else {
+        trigger.textContent = "已复制";
+      }
       setTimeout(() => {
         trigger.innerHTML = oldHTML;
       }, 1200);
@@ -472,6 +531,184 @@
     });
   }
 
+  function bindSharingControls() {
+    const dialog = $("[data-share-settings-dialog]");
+    if (!dialog) return;
+    const form = $("[data-reshare-form]", dialog);
+    const result = $("[data-reshare-result]", dialog);
+    const message = $("[data-share-settings-message]", dialog);
+    const submit = $("button[type=submit]", form);
+    const closeButtons = $$("[data-share-settings-close]", dialog);
+    let saving = false;
+
+    const updateSharingItem = (id, summary) => {
+      const item = $$("[data-share-id]", dialog.closest("main")).find((entry) => entry.dataset.shareId === id);
+      if (!item) return;
+      const active = summary.status === "active";
+      const action = $("[data-share-action]", item);
+      action.dataset.shareAction = active ? "cancel" : "share";
+      action.title = active ? "取消分享" : "分享文件";
+      action.setAttribute("aria-label", action.title);
+      action.innerHTML = active
+        ? '<svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17H7A5 5 0 0 1 7 7"></path><path d="M15 7h2a5 5 0 0 1 4 8"></path><path d="M8 12h4M3 3l18 18"></path></svg>'
+        : '<svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17H7A5 5 0 0 1 7 7h2M15 7h2a5 5 0 0 1 0 10h-2"></path><path d="M8 12h8"></path></svg>';
+      const status = $(".badge-active, .badge-expired, .badge-cancelled", item);
+      status.className = `badge badge-${summary.status}`;
+      status.textContent = active ? "分享中" : "已取消";
+      const copy = $("[data-copy-value]", item);
+      copy.hidden = !active;
+      copy.dataset.copyValue = active ? summary.shareUrl : "";
+      if (!active) return;
+
+      const badges = $(".share-item__badges", item);
+      let passwordBadge = $(".badge-subtle", badges);
+      if (summary.hasPassword && !passwordBadge) {
+        passwordBadge = document.createElement("span");
+        passwordBadge.className = "badge badge-subtle";
+        passwordBadge.textContent = "有提取码";
+        badges.prepend(passwordBadge);
+      } else if (!summary.hasPassword && passwordBadge) {
+        passwordBadge.remove();
+      }
+      const expiresAt = new Date(summary.expiresAt);
+      const pad = (value) => String(value).padStart(2, "0");
+      $("[data-share-expiry-time]", item).textContent = expiresAt.getUTCFullYear() >= 9999
+        ? "过期：永不过期"
+        : `过期：${expiresAt.getFullYear()}-${pad(expiresAt.getMonth() + 1)}-${pad(expiresAt.getDate())} ${pad(expiresAt.getHours())}:${pad(expiresAt.getMinutes())}`;
+      const description = $("[data-description-form] textarea", item);
+      description.value = summary.description;
+      description.defaultValue = summary.description;
+      setMessage($("[data-description-message]", item), "", "");
+    };
+
+    closeButtons.forEach((button) => button.addEventListener("click", () => {
+      if (!saving) dialog.close();
+    }));
+    dialog.addEventListener("cancel", (event) => {
+      if (saving) event.preventDefault();
+    });
+
+    $$("[data-share-action]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const id = button.dataset.sharingId;
+        button.disabled = true;
+        try {
+          if (button.dataset.shareAction === "cancel") {
+            const response = await fetch(`/api/admin/shares/${id}/cancel`, { method: "POST" });
+            if (response.redirected) { window.location.href = response.url; return; }
+            const payload = await response.json();
+            if (!response.ok || !payload.success) {
+              showNoticeDialog(payload.message || "取消分享失败");
+              return;
+            }
+            updateSharingItem(id, { status: "cancelled" });
+            return;
+          }
+
+          dialog.dataset.shareId = id;
+          form.hidden = true;
+          result.hidden = true;
+          setMessage(message, "正在读取分享设置…", "");
+          dialog.showModal();
+          const response = await fetch(`/api/admin/shares/${id}/settings`, { cache: "no-store" });
+          if (response.redirected) { window.location.href = response.url; return; }
+          const payload = await response.json();
+          if (!dialog.open || dialog.dataset.shareId !== id) return;
+          if (!response.ok || !payload.success) {
+            setMessage(message, payload.message || "读取设置失败，请关闭后重试", "error");
+            return;
+          }
+          form.elements.description.value = payload.description;
+          form.elements.access_password.value = payload.accessPassword;
+          const hours = String(payload.expiresHours);
+          form.elements.expires_hours.value = ["0", "1", "6", "24", "72", "168"].includes(hours) ? hours : "24";
+          setMessage(message, "", "");
+          form.hidden = false;
+          form.elements.description.focus();
+        } catch (error) {
+          if (dialog.open) setMessage(message, "网络异常，请关闭后重试", "error");
+          else showNoticeDialog("网络异常，请稍后重试");
+        } finally {
+          button.disabled = false;
+        }
+      });
+    });
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (saving) return;
+      saving = true;
+      submit.disabled = true;
+      closeButtons.forEach((button) => { button.disabled = true; });
+      submit.textContent = "生成中…";
+      setMessage(message, "", "");
+      try {
+        const response = await fetch(`/api/admin/shares/${dialog.dataset.shareId}/reshare`, {
+          method: "POST", body: new FormData(form),
+        });
+        if (response.redirected) { window.location.href = response.url; return; }
+        const payload = await response.json();
+        if (!response.ok || !payload.success) {
+          setMessage(message, payload.message || "重新分享失败", "error");
+          return;
+        }
+        updateSharingItem(dialog.dataset.shareId, payload.data);
+        form.hidden = true;
+        result.hidden = false;
+        $("#reshare-url", dialog).value = payload.data.shareUrl;
+        $("[data-reshare-visit]", dialog).href = payload.data.shareUrl;
+      } catch (error) {
+        setMessage(message, "网络异常，请稍后重试", "error");
+      } finally {
+        saving = false;
+        submit.disabled = false;
+        closeButtons.forEach((button) => { button.disabled = false; });
+        submit.textContent = "生成新分享链接";
+      }
+    });
+  }
+
+  function bindDescriptionForms() {
+    $$("[data-description-form]").forEach((form) => {
+      const input = $("textarea", form);
+      const button = $("button[type=submit]", form);
+      const message = $("[data-description-message]", form);
+      input.addEventListener("input", () => setMessage(message, "", ""));
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (button.disabled) return;
+        button.disabled = true;
+        input.disabled = true;
+        button.textContent = "保存中…";
+        setMessage(message, "", "");
+        try {
+          const response = await fetch(`/api/admin/shares/${form.dataset.descriptionForm}/description`, {
+            method: "POST",
+            body: new URLSearchParams({ description: input.value }),
+          });
+          if (response.redirected) {
+            window.location.href = response.url;
+            return;
+          }
+          const payload = await response.json();
+          if (!response.ok || !payload.success) {
+            setMessage(message, payload.message || "保存说明失败", "error");
+            return;
+          }
+          input.value = payload.description;
+          input.defaultValue = payload.description;
+          setMessage(message, "已保存", "success");
+        } catch (error) {
+          setMessage(message, "网络异常，请稍后重试", "error");
+        } finally {
+          button.disabled = false;
+          input.disabled = false;
+          button.textContent = "保存说明";
+        }
+      });
+    });
+  }
+
   function bindDeleteButtons() {
     const modal = $("[data-delete-modal]");
     const title = $("[data-delete-modal-title]");
@@ -512,9 +749,23 @@
       const deletedItem = item.cloneNode(true);
       deletedItem.removeAttribute("data-share-id");
       deletedItem.classList.add("share-item--deleted");
+      $$("[data-admin-download]", deletedItem).forEach((link) => link.remove());
+      const editor = $(".share-description-editor", deletedItem);
+      if (editor) {
+        const input = $("textarea", editor);
+        if (input && input.defaultValue) {
+          const text = document.createElement("p");
+          text.className = "share-description-text";
+          text.textContent = input.defaultValue;
+          $("summary", editor).textContent = "查看说明";
+          $("form", editor).replaceWith(text);
+        } else {
+          editor.remove();
+        }
+      }
       let actions = $(".share-item__actions", deletedItem);
       if (actions) {
-        $$("[data-copy-value], [data-delete-share]", actions).forEach((control) => control.remove());
+        $$("[data-copy-value], [data-delete-share], [data-share-action]", actions).forEach((control) => control.remove());
       } else {
         actions = document.createElement("div");
         actions.className = "share-item__actions";
@@ -524,7 +775,7 @@
       const purgeButton = createPurgeButton(shareId);
       purgeButton.addEventListener("click", () => purgeDeletedShare(purgeButton));
       actions.append(purgeButton);
-      const status = $(".badge-active, .badge-expired", deletedItem);
+      const status = $(".badge-active, .badge-expired, .badge-cancelled", deletedItem);
       if (status) {
         status.className = "badge badge-deleted";
         status.textContent = "已删除";
@@ -537,8 +788,8 @@
         files.hidden = true;
         toggleButton.setAttribute("aria-controls", deletedFilesID);
         toggleButton.setAttribute("aria-expanded", "false");
-        const label = $("span", toggleButton);
-        if (label) label.textContent = "展开";
+        toggleButton.setAttribute("aria-label", "展开文件列表");
+        toggleButton.title = "展开文件列表";
         toggleButton.addEventListener("click", () => toggleFileDisclosure(toggleButton));
       }
       const expiryTime = $("[data-share-expiry-time]", deletedItem);
@@ -704,8 +955,9 @@
     const expanded = button.getAttribute("aria-expanded") === "true";
     button.setAttribute("aria-expanded", String(!expanded));
     target.hidden = expanded;
-    const label = $("span", button);
-    if (label) label.textContent = expanded ? "展开" : "收起";
+    const label = expanded ? "展开文件列表" : "收起文件列表";
+    button.setAttribute("aria-label", label);
+    button.title = label;
   }
 
   function bindCurrentView(main) {
@@ -719,6 +971,8 @@
       bindUploadForm();
     }
     if ($("[data-management-tab]", main)) {
+      bindSharingControls();
+      bindDescriptionForms();
       bindDeleteButtons();
       bindFileDisclosures();
       bindManagementTabs();
