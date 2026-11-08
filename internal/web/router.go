@@ -1,10 +1,12 @@
 package web
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"html/template"
 	"math"
+	"mime"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -188,6 +190,7 @@ func (s *Server) registerRoutes() {
 	admin.POST("/api/shares/file", s.handleCreateFileShare)
 	admin.POST("/api/admin/shares/:id/delete", s.handleDeleteShare)
 	admin.POST("/api/admin/shares/:id/description", s.handleUpdateShareDescription)
+	admin.POST("/api/admin/shares/:id/files/:fileID/replace", s.handleReplaceShareFile)
 	admin.GET("/api/admin/shares/:id/settings", s.handleShareSettings)
 	admin.POST("/api/admin/shares/:id/cancel", s.handleCancelShare)
 	admin.POST("/api/admin/shares/:id/reshare", s.handleReshare)
@@ -256,10 +259,12 @@ func (s *Server) handleAdminPage(c *gin.Context) {
 		Now:           time.Now(),
 		Shares:        shares,
 		DeletedShares: deletedShares,
+		MaxUploadSize: s.cfg.MaxUploadSize,
 	})
 }
 
 func (s *Server) handleSharePage(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
 	share, err := s.svc.GetPublicShare(c.Request.Context(), c.Param("id"))
 	if err != nil {
 		s.renderShareStatus(c, nil, false, false, false)
@@ -368,23 +373,65 @@ func (s *Server) handleAdminDownload(c *gin.Context) {
 }
 
 func (s *Server) serveShareFile(c *gin.Context, share *models.Share) {
-	var target *models.ShareFile
-	if fileID := c.Query("file"); fileID != "" {
-		file, err := s.svc.GetShareFile(c.Request.Context(), share.ID, fileID)
-		if err != nil {
-			c.String(http.StatusNotFound, "文件不存在")
-			return
-		}
-		target = file
-	} else if len(share.Files) > 0 {
-		target = &share.Files[0]
-	}
-	if target == nil {
+	file, target, err := s.svc.OpenShareFile(c.Request.Context(), share.ID, c.Query("file"))
+	if err != nil {
 		c.String(http.StatusNotFound, "文件不存在")
 		return
 	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		c.String(http.StatusNotFound, "文件不存在")
+		return
+	}
+	c.Header("Cache-Control", "no-store")
+	// Each stored version has a unique path. If-Range from an older version
+	// must trigger a complete download instead of combining different binaries.
+	c.Header("ETag", fmt.Sprintf(`"%x"`, sha256.Sum256([]byte(target.StoragePath))))
+	c.Header("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": target.FileName}))
+	// Version ETags are precise; timestamp validators have only second precision
+	// and can incorrectly resume across two replacements in the same second.
+	http.ServeContent(c.Writer, c.Request, target.FileName, time.Time{}, file)
+}
 
-	c.FileAttachment(target.StoragePath, target.FileName)
+func (s *Server) handleReplaceShareFile(c *gin.Context) {
+	if s.cfg.MaxUploadSize > 0 {
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, s.cfg.MaxUploadSize+(1<<20))
+	}
+	form, err := c.MultipartForm()
+	if form != nil {
+		defer form.RemoveAll()
+	}
+	if err != nil {
+		var sizeError *http.MaxBytesError
+		if errors.As(err, &sizeError) {
+			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"success": false, "message": "文件大小不能超过 " + formatFileSize(s.cfg.MaxUploadSize)})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "请选择一个新文件"})
+		return
+	}
+	files := form.File["file"]
+	count := 0
+	for _, headers := range form.File {
+		count += len(headers)
+	}
+	if len(files) != 1 || count != 1 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "每次只能更新一个文件"})
+		return
+	}
+	err = s.svc.ReplaceShareFile(c.Request.Context(), c.Param("id"), c.Param("fileID"), files[0])
+	if err != nil {
+		status, message := http.StatusBadRequest, "更新失败，旧文件仍保留，请重试"
+		if errors.Is(err, service.ErrUploadTooLarge) {
+			status, message = http.StatusRequestEntityTooLarge, "文件大小不能超过 "+formatFileSize(s.cfg.MaxUploadSize)
+		} else if errors.Is(err, repository.ErrNotFound) {
+			status, message = http.StatusConflict, "文件已更新或分享已删除，请刷新后重试"
+		}
+		c.JSON(status, gin.H{"success": false, "message": message})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "文件已更新，原分享链接保持不变"})
 }
 
 func (s *Server) handleDownloadClick(c *gin.Context) {

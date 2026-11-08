@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -32,9 +33,10 @@ func (e *FileDeletionError) Error() string {
 }
 
 type Service struct {
-	repo *repository.Repository
-	cfg  *config.Config
-	now  func() time.Time
+	fileMu sync.Mutex
+	repo   *repository.Repository
+	cfg    *config.Config
+	now    func() time.Time
 }
 
 func New(repo *repository.Repository, cfg *config.Config) *Service {
@@ -279,6 +281,8 @@ func (s *Service) CountSuccessfulDownloads(ctx context.Context, shareID string) 
 }
 
 func (s *Service) DeleteShare(ctx context.Context, id string) error {
+	s.fileMu.Lock()
+	defer s.fileMu.Unlock()
 	share, err := s.repo.GetShareByID(ctx, id)
 	if err != nil {
 		return err
@@ -294,6 +298,8 @@ func (s *Service) DeleteShare(ctx context.Context, id string) error {
 }
 
 func (s *Service) PurgeDeletedShare(ctx context.Context, id string) error {
+	s.fileMu.Lock()
+	defer s.fileMu.Unlock()
 	share, err := s.repo.GetShareByID(ctx, id)
 	if err != nil {
 		return err
@@ -353,7 +359,7 @@ func (s *Service) VerifySharePassword(share *models.Share, password string) (str
 }
 
 func (s *Service) CleanupExpiredSessions(ctx context.Context) error {
-	return s.repo.DeleteExpiredSessions(ctx, s.now())
+	return errors.Join(s.repo.DeleteExpiredSessions(ctx, s.now()), s.cleanupObsoleteFiles(ctx))
 }
 
 func (s *Service) RecordAccess(ctx context.Context, shareID, action, ip, userAgent string, statusCode int) {

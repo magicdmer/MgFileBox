@@ -41,6 +41,7 @@ func (r *Repository) Close() error {
 
 func (r *Repository) migrate(ctx context.Context) error {
 	statements := []string{
+		`CREATE TABLE IF NOT EXISTS obsolete_files (storage_path TEXT PRIMARY KEY);`,
 		`CREATE TABLE IF NOT EXISTS shares (
 			id TEXT PRIMARY KEY,
 			type TEXT NOT NULL DEFAULT 'file' CHECK (type IN ('file')),
@@ -293,6 +294,65 @@ func (r *Repository) GetShareFile(ctx context.Context, shareID, fileID string) (
 		return nil, err
 	}
 	return &file, nil
+}
+
+// ReplaceShareFile switches metadata only after the new file is fully stored.
+// The previous path is retained for retryable cleanup, including after restart.
+func (r *Repository) ReplaceShareFile(ctx context.Context, old models.ShareFile, file models.ShareFile) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `UPDATE share_files SET file_name = ?, mime_type = ?, storage_path = ?, size = ?
+		WHERE share_id = ? AND id = ? AND storage_path = ?
+		AND EXISTS (SELECT 1 FROM shares WHERE id = ? AND deleted_at IS NULL)`,
+		file.FileName, file.MimeType, file.StoragePath, file.Size, old.ShareID, old.ID, old.StoragePath, old.ShareID)
+	if err != nil {
+		return err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return ErrNotFound
+	}
+	// Keep the legacy first-file fields in sync. Follow renamed auto titles,
+	// while preserving titles explicitly chosen by the administrator.
+	_, err = tx.ExecContext(ctx, `UPDATE shares SET file_name = ?, mime_type = ?, storage_path = ?,
+		title = CASE WHEN title = ? THEN ? ELSE title END
+		WHERE id = ? AND (SELECT id FROM share_files WHERE share_id = ? ORDER BY created_at, id LIMIT 1) = ?`,
+		file.FileName, file.MimeType, file.StoragePath, old.FileName, file.FileName, old.ShareID, old.ShareID, old.ID)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO obsolete_files (storage_path) VALUES (?)`, old.StoragePath); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (r *Repository) ListObsoleteFiles(ctx context.Context) ([]string, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT storage_path FROM obsolete_files`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var paths []string
+	for rows.Next() {
+		var path string
+		if err := rows.Scan(&path); err != nil {
+			return nil, err
+		}
+		paths = append(paths, path)
+	}
+	return paths, rows.Err()
+}
+
+func (r *Repository) ForgetObsoleteFile(ctx context.Context, path string) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM obsolete_files WHERE storage_path = ?`, path)
+	return err
 }
 
 func (r *Repository) listShareFiles(ctx context.Context, shareID string) ([]models.ShareFile, error) {

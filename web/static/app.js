@@ -668,6 +668,97 @@
     });
   }
 
+  function bindFileUpdates() {
+    const dialog = $("[data-file-update-dialog]");
+    if (!dialog) return;
+    const form = $("[data-file-update-form]", dialog);
+    const input = $("input[type=file]", form);
+    const submit = $("button[type=submit]", form);
+    const close = $("[data-file-update-close]", dialog);
+    const message = $("[data-file-update-message]", dialog);
+    const progress = $("[data-file-update-progress]", dialog);
+    let target = null;
+    let uploading = false;
+    let updated = false;
+    const finish = () => {
+      if (uploading) return;
+      dialog.close();
+      if (updated) window.location.reload();
+    };
+    close.addEventListener("click", finish);
+    dialog.addEventListener("cancel", (event) => {
+      // File inputs also emit a bubbling cancel event when the picker closes.
+      if (event.target !== dialog) return;
+      event.preventDefault();
+      finish();
+    });
+    $$("[data-replace-file]").forEach((button) => {
+      button.addEventListener("click", () => {
+        target = button;
+        updated = false;
+        form.reset();
+        input.disabled = false;
+        submit.hidden = false;
+        submit.disabled = false;
+        submit.textContent = "上传并更新";
+        close.textContent = "取消";
+        progress.hidden = true;
+        setMessage(message, "", "");
+        $("[data-file-update-name]", dialog).textContent = `当前文件：${button.dataset.replaceName}`;
+        dialog.showModal();
+      });
+    });
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      if (uploading || updated || !target || !input.files.length) return;
+      const file = input.files[0];
+      const limit = Number(dialog.dataset.maxUploadSize);
+      if (limit > 0 && file.size > limit) {
+        setMessage(message, "文件大小超过上传上限，请重新选择", "error");
+        return;
+      }
+      const body = new FormData();
+      body.append("file", file);
+      const request = new XMLHttpRequest();
+      request.open("POST", `/api/admin/shares/${encodeURIComponent(target.dataset.replaceShare)}/files/${encodeURIComponent(target.dataset.replaceFile)}/replace`);
+      uploading = true;
+      input.disabled = true;
+      submit.disabled = true;
+      close.disabled = true;
+      progress.value = 0;
+      progress.hidden = false;
+      submit.textContent = "上传中…";
+      const started = Date.now();
+      request.upload.addEventListener("progress", (e) => {
+        if (!e.lengthComputable) return;
+        const percent = Math.min(100, Math.round(e.loaded / e.total * 100));
+        progress.value = percent;
+        const speed = e.loaded / Math.max((Date.now() - started) / 1000, 0.1);
+        const remaining = Math.max(0, Math.ceil((e.total - e.loaded) / speed));
+        setMessage(message, percent === 100 ? "上传完成，正在保存…" : `上传 ${percent}% · ${(speed / 1024 / 1024).toFixed(1)} MB/s · 剩余约 ${remaining} 秒`, "info");
+      });
+      request.addEventListener("loadend", () => {
+        uploading = false;
+        close.disabled = false;
+        input.disabled = false;
+        submit.disabled = false;
+        submit.textContent = "上传并更新";
+        let payload = null;
+        try { payload = JSON.parse(request.responseText); } catch (error) {}
+        if (request.status === 200 && payload && payload.success) {
+          updated = true;
+          input.disabled = true;
+          submit.hidden = true;
+          close.textContent = "完成";
+          setMessage(message, payload.message, "success");
+        } else {
+          setMessage(message, (payload && payload.message) || "未能确认更新结果，请刷新管理页检查后重试", "error");
+        }
+      });
+      request.send(body);
+    });
+  }
+
   function bindDescriptionForms() {
     $$("[data-description-form]").forEach((form) => {
       const input = $("textarea", form);
@@ -749,7 +840,7 @@
       const deletedItem = item.cloneNode(true);
       deletedItem.removeAttribute("data-share-id");
       deletedItem.classList.add("share-item--deleted");
-      $$("[data-admin-download]", deletedItem).forEach((link) => link.remove());
+      $$("[data-admin-download], [data-replace-file]", deletedItem).forEach((link) => link.remove());
       const editor = $(".share-description-editor", deletedItem);
       if (editor) {
         const input = $("textarea", editor);
@@ -972,6 +1063,7 @@
     }
     if ($("[data-management-tab]", main)) {
       bindSharingControls();
+      bindFileUpdates();
       bindDescriptionForms();
       bindDeleteButtons();
       bindFileDisclosures();
