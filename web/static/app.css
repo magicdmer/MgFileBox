@@ -1250,6 +1250,7 @@ h2 {
   align-items: center;
   padding: 16px 18px;
   gap: 20px;
+  row-gap: 9px;
   border-radius: var(--radius-lg);
   box-shadow: 0 6px 20px rgba(45, 35, 66, 0.035);
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
@@ -1258,7 +1259,6 @@ h2 {
 .share-files {
   flex: 0 0 100%;
   padding: 10px 0 0;
-  border-top: 1px solid var(--border);
 }
 
 .share-file-row,
@@ -1288,14 +1288,6 @@ h2 {
 
 .share-file-row__size {
   flex-shrink: 0;
-}
-
-[data-toggle-files] .disclosure-icon {
-  transition: transform 0.2s ease;
-}
-
-[data-toggle-files][aria-expanded="true"] .disclosure-icon {
-  transform: rotate(180deg);
 }
 
 .download-list {
@@ -1345,6 +1337,9 @@ h2 {
 }
 
 .share-description-editor {
+  order: 1;
+  flex: 0 0 auto;
+  width: 100%;
   min-width: 0;
 }
 
@@ -1353,6 +1348,21 @@ h2 {
   color: var(--accent);
   font-size: 0.85rem;
   cursor: pointer;
+}
+
+.share-description-editor[open] > summary {
+  width: 100%;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.share-description-editor .details-expanded,
+.share-description-editor[open] .details-collapsed {
+  display: none;
+}
+
+.share-description-editor[open] .details-expanded {
+  display: inline;
 }
 
 .share-description-editor form,

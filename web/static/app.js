@@ -848,11 +848,13 @@
           const text = document.createElement("p");
           text.className = "share-description-text";
           text.textContent = input.defaultValue;
-          $("summary", editor).textContent = "查看说明";
           $("form", editor).replaceWith(text);
         } else {
-          editor.remove();
+          const form = $("form", editor);
+          if (form) form.remove();
+          if (!$(".share-files", editor)) editor.remove();
         }
+        editor.open = false;
       }
       let actions = $(".share-item__actions", deletedItem);
       if (actions) {
@@ -870,18 +872,6 @@
       if (status) {
         status.className = "badge badge-deleted";
         status.textContent = "已删除";
-      }
-      const files = $(".share-files", deletedItem);
-      const toggleButton = $("[data-toggle-files]", deletedItem);
-      if (files && toggleButton) {
-        const deletedFilesID = `files-deleted-${shareId}`;
-        files.id = deletedFilesID;
-        files.hidden = true;
-        toggleButton.setAttribute("aria-controls", deletedFilesID);
-        toggleButton.setAttribute("aria-expanded", "false");
-        toggleButton.setAttribute("aria-label", "展开文件列表");
-        toggleButton.title = "展开文件列表";
-        toggleButton.addEventListener("click", () => toggleFileDisclosure(toggleButton));
       }
       const expiryTime = $("[data-share-expiry-time]", deletedItem);
       if (expiryTime) {
@@ -1017,12 +1007,6 @@
     });
   }
 
-  function bindFileDisclosures() {
-    $$("[data-toggle-files]").forEach((button) => {
-      button.addEventListener("click", () => toggleFileDisclosure(button));
-    });
-  }
-
   function bindDownloadCounters() {
     $$('[data-download-count]').forEach((link) => {
       link.addEventListener("click", () => {
@@ -1037,18 +1021,6 @@
         fetch(countURL, { method: "POST", keepalive: true }).catch(() => {});
       });
     });
-  }
-
-  function toggleFileDisclosure(button) {
-    const targetID = button.getAttribute("aria-controls") || `files-${button.dataset.toggleFiles}`;
-    const target = document.getElementById(targetID);
-    if (!target) return;
-    const expanded = button.getAttribute("aria-expanded") === "true";
-    button.setAttribute("aria-expanded", String(!expanded));
-    target.hidden = expanded;
-    const label = expanded ? "展开文件列表" : "收起文件列表";
-    button.setAttribute("aria-label", label);
-    button.title = label;
   }
 
   function bindCurrentView(main) {
@@ -1066,7 +1038,6 @@
       bindFileUpdates();
       bindDescriptionForms();
       bindDeleteButtons();
-      bindFileDisclosures();
       bindManagementTabs();
     }
 

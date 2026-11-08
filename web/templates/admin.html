@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=20261101-13">
+  <link rel="stylesheet" href="/static/app.css?v=20261108-3">
 </head>
 <body>
   <div class="app-shell">
@@ -62,8 +62,26 @@
               <span class="share-item__time" data-share-expiry-time>过期：{{ formatExpiry .ExpiresAt }}</span>
               <span class="share-item__time">下载 {{ .DownloadCount }} 次</span>
             </div>
-            <details class="share-description-editor">
-              <summary>查看 / 编辑说明</summary>
+          </div>
+          <details class="share-description-editor">
+              <summary><span class="details-collapsed">展开详情</span><span class="details-expanded">收起详情</span></summary>
+              {{ if gt .FileCount 1 }}
+              <div class="share-files">
+                {{ range .Files }}
+                <div class="share-file-row">
+                  <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+                  <span class="mono truncate" title="{{ .FileName }}">{{ .FileName }}</span>
+                  <span class="share-file-row__size">{{ formatSize .Size }}</span>
+                  <button type="button" class="button button-secondary button-icon" data-replace-file="{{ .ID }}" data-replace-share="{{ .ShareID }}" data-replace-name="{{ .FileName }}" aria-label="更新 {{ .FileName }}" title="更新文件">
+                    <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 3 4 4-4 4M20 7H4M8 21l-4-4 4-4M4 17h16"></path></svg>
+                  </button>
+                  <a href="/api/admin/shares/{{ .ShareID }}/download?file={{ .ID }}" class="button button-secondary button-icon" data-admin-download download aria-label="下载 {{ .FileName }}" title="下载 {{ .FileName }}">
+                    <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                  </a>
+                </div>
+                {{ end }}
+              </div>
+              {{ end }}
               <form data-description-form="{{ .ID }}" class="stack-lg">
                 <label class="field">
                   <span>分享说明（可选）</span>
@@ -74,8 +92,7 @@
                   <span class="form-message" data-description-message role="status" hidden></span>
                 </div>
               </form>
-            </details>
-          </div>
+          </details>
           <div class="share-item__actions">
             {{ if eq .Status "active" }}
             <button type="button" class="button button-secondary button-icon" data-share-action="cancel" data-sharing-id="{{ .ID }}" aria-label="取消分享" title="取消分享">
@@ -93,13 +110,7 @@
               </svg>
             </button>
             {{ end }}
-            {{ if gt .FileCount 1 }}
-            <button type="button" class="button button-ghost button-icon" data-toggle-files="{{ .ID }}" aria-expanded="false" aria-controls="files-{{ .ID }}" aria-label="展开文件列表" title="展开文件列表">
-              <svg class="disclosure-icon" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="6 9 12 15 18 9"></polyline>
-              </svg>
-            </button>
-            {{ else if eq .FileCount 1 }}
+            {{ if eq .FileCount 1 }}
             {{ range .Files }}
             <button type="button" class="button button-secondary button-icon" data-replace-file="{{ .ID }}" data-replace-share="{{ .ShareID }}" data-replace-name="{{ .FileName }}" aria-label="更新文件" title="更新文件">
               <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 3 4 4-4 4M20 7H4M8 21l-4-4 4-4M4 17h16"></path></svg>
@@ -128,30 +139,6 @@
               </svg>
             </button>
           </div>
-          {{ if gt .FileCount 1 }}
-          <div class="share-files" id="files-{{ .ID }}" hidden>
-            {{ range .Files }}
-            <div class="share-file-row">
-              <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                <polyline points="14 2 14 8 20 8"></polyline>
-              </svg>
-              <span class="mono truncate" title="{{ .FileName }}">{{ .FileName }}</span>
-              <span class="share-file-row__size">{{ formatSize .Size }}</span>
-              <button type="button" class="button button-secondary button-icon" data-replace-file="{{ .ID }}" data-replace-share="{{ .ShareID }}" data-replace-name="{{ .FileName }}" aria-label="更新 {{ .FileName }}" title="更新文件">
-                <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 3 4 4-4 4M20 7H4M8 21l-4-4 4-4M4 17h16"></path></svg>
-              </button>
-              <a href="/api/admin/shares/{{ .ShareID }}/download?file={{ .ID }}" class="button button-secondary button-icon" data-admin-download download aria-label="下载 {{ .FileName }}" title="下载 {{ .FileName }}">
-                <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                  <polyline points="7 10 12 15 17 10"></polyline>
-                  <line x1="12" y1="15" x2="12" y2="3"></line>
-                </svg>
-              </a>
-            </div>
-            {{ end }}
-          </div>
-          {{ end }}
         </article>
         {{ end }}
           </section>
@@ -184,21 +171,25 @@
                   <span class="share-item__time" data-share-deleted-time>删除：{{ formatDeletedTime .DeletedAt }}</span>
                   <span class="share-item__time">下载 {{ .DownloadCount }} 次</span>
                 </div>
-                {{ if .Description }}
-                <details class="share-description-editor">
-                  <summary>查看说明</summary>
-                  <p class="share-description-text">{{ .Description }}</p>
-                </details>
-                {{ end }}
               </div>
+              {{ if or .Description (gt .FileCount 1) }}
+                <details class="share-description-editor">
+                  <summary><span class="details-collapsed">展开详情</span><span class="details-expanded">收起详情</span></summary>
+                  {{ if gt .FileCount 1 }}
+                  <div class="share-files">
+                    {{ range .Files }}
+                    <div class="share-file-row">
+                      <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+                      <span class="mono truncate" title="{{ .FileName }}">{{ .FileName }}</span>
+                      <span class="share-file-row__size">{{ formatSize .Size }}</span>
+                    </div>
+                    {{ end }}
+                  </div>
+                  {{ end }}
+                  {{ if .Description }}<p class="share-description-text">{{ .Description }}</p>{{ end }}
+                </details>
+              {{ end }}
               <div class="share-item__actions">
-                {{ if gt .FileCount 1 }}
-                <button type="button" class="button button-ghost button-icon" data-toggle-files="{{ .ID }}" aria-expanded="false" aria-controls="files-deleted-{{ .ID }}" aria-label="展开文件列表" title="展开文件列表">
-                  <svg class="disclosure-icon" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <polyline points="6 9 12 15 18 9"></polyline>
-                  </svg>
-                </button>
-                {{ end }}
                 <button type="button" class="button button-danger button-icon" data-purge-share="{{ .ID }}" aria-label="清除记录" title="清除记录">
                   <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M3 6h18"></path>
@@ -208,20 +199,6 @@
                   </svg>
                 </button>
               </div>
-              {{ if gt .FileCount 1 }}
-              <div class="share-files" id="files-deleted-{{ .ID }}" hidden>
-                {{ range .Files }}
-                <div class="share-file-row">
-                  <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                    <polyline points="14 2 14 8 20 8"></polyline>
-                  </svg>
-                  <span class="mono truncate" title="{{ .FileName }}">{{ .FileName }}</span>
-                  <span class="share-file-row__size">{{ formatSize .Size }}</span>
-                </div>
-                {{ end }}
-              </div>
-              {{ end }}
             </article>
             {{ end }}
           </section>
@@ -318,6 +295,6 @@
     </section>
   </div>
 
-  <script src="/static/app.js?v=20261108-2"></script>
+  <script src="/static/app.js?v=20261108-3"></script>
 </body>
 </html>
